@@ -1,0 +1,14 @@
+oddzial_code,punkt,status,uwaga
+BIA,Białystok,active,potwierdzone na zdjęciu
+LUB,Lublin,active,potwierdzone na zdjęciu
+ŁZE,Łódź,active,potwierdzone na zdjęciu
+LZE,Łódź,active,alias bez polskiego znaku
+RZE,Rzeszów,active,potwierdzone na zdjęciu
+RZ,Rzeszów,active,wariant podany ustnie
+LBU,Lublin,active,alias podany ustnie; na zdjęciu LUB
+ZAM,Zamość,active,kod podany przez użytkownika
+SKO,Skarżysko-Kamienna,active,kod podany przez użytkownika
+SKA,Skarżysko-Kamienna,inactive,niepotwierdzony starszy wariant
+WAW,Warszawa,active,kod podany przez użytkownika
+ZEUD,Łódź,active,Łódź teren według opisu użytkownika
+ZEUE,Łódź,active,Łódź miasto według opisu użytkownika

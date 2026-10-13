@@ -1,0 +1,55 @@
+# PGEOv1 — prognozy bilansów energii na 72 godziny
+
+System przygotowuje osobny godzinowy bilans dla każdego oddziału/OSD PGE:
+**pobranie minus oddanie**. Osiem oddziałów daje 576 wierszy prognozy 72 h.
+
+## Uruchomienie w VS Code
+
+1. Pobierz lub sklonuj repozytorium i otwórz cały folder w VS Code.
+2. Zainstaluj biblioteki: `python -m pip install -r requirements.txt`.
+3. Uruchom **`uruchom_trening_bilansow.py`** strzałką ▶, wskaż Excel/CSV energii
+   i folder na model. Trening porównuje zestawy pogody i zapisuje modele oraz raporty.
+4. Uruchamiaj **`uruchom_prognoze_bilansow.py`** kilka razy dziennie.
+   Program wczytuje zapisany model i nie wykonuje ponownego uczenia.
+
+Połączenie z firmowym SQL wymaga ODBC Driver 17 for SQL Server, sieci/VPN
+i uprawnień konta Windows. Kwerenda jest osobnym plikiem wykonywanym przez
+Python/pyodbc. Dostępne jest też użycie eksportu pogody zamiast połączenia z SQL.
+
+**[Pełna instrukcja, format wejścia, parametry i ograniczenia](START_BILANSY_72H.md).**
+
+## Dane i pogoda
+
+- Excel/CSV: dziewięć kolumn A:I opisanych w instrukcji.
+- Korekty pomiarów: jeden rekord MDD/godzina/kierunek, najwyższa wersja 4 > 3 > 2 > 1 > 0.
+- Pogoda: najnowsze wydanie dostępne w chwili uruchomienia całej prognozy 72 h.
+- Kalendarz, pogoda oraz mapowanie oddziałów są przygotowane identycznie w treningu i predykcji.
+- Dobór zmiennych ma osobne okno walidacji. Późniejszy test ocenia wybrany model.
+- Dwa modele uczą się pobrania i oddania. Wyniki poszczególnych oddziałów są oddzielne.
+
+## Kontrola zmian klientów
+
+Raporty wykazują obecność MDD, dłuższe braki, przerwy, powroty i zmiany zestawu
+klientów. Nowy eksport energii może być użyty do kontroli przy predykcji bez
+ponownego treningu. Brak pomiarów nie potwierdza zakończenia umowy, a wartość
+zero nadal jest pomiarem. Domyślny próg kontroli to 14 dni i jest ustawialny.
+
+Kolumna `status_portfela` wskazuje niepewne lub zmienione portfele.
+Kontrola nie przelicza automatycznie prognozy po domniemanym odejściu klientów.
+
+## Testy
+
+```bash
+python -m unittest tests.test_portfolio tests.test_branch_forecasting tests.test_mdd_forecasting -v
+```
+
+32 testy sprawdzają m.in. wybór korekt, znak bilansu, cutoff pogody, zmianę czasu,
+zapis i odczyt modeli, prognozę 576 wierszy oraz kontrolę znikających MDD.
+Testy korzystają z danych syntetycznych. Do właściwego treningu i oceny dokładności
+na portfelu PGE potrzebny jest rzeczywisty eksport energii oraz historia pogody.
+
+## Starszy przebieg MDD
+
+`uruchom_model.py` oraz `python -m mdd_forecasting` obsługują wcześniejszy
+przebieg prognoz poszczególnych MDD, który przy każdym uruchomieniu trenuje modele.
+Do nowej prognozy bilansów 72 h używaj dwóch programów wskazanych powyżej.

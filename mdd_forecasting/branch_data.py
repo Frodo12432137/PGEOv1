@@ -1,0 +1,211 @@
+"""Dane do prognoz oddziałów: korekty pomiarów i historyczne wydania pogody."""
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from .config import PipelineConfig, WEATHER_FEATURES
+from .io import (
+    _ascii_token, _numeric, load_branch_mapping, normalize_energy,
+    normalize_weather, read_energy_file,
+)
+
+# Aliasy potwierdzone na zdjęciach i w opisie. ŁZE oraz ZEUE to Łódź miasto.
+BRANCH_ALIASES = {"LBU": "LUB", "ŁZE": "ZEUE", "LZE": "ZEUE", "RZ": "RZE"}
+BRANCHES = ("BIA", "LUB", "RZE", "SKO", "WAW", "ZAM", "ZEUD", "ZEUE")
+
+
+def utc_timestamp(value: object, timezone: str = "Europe/Warsaw") -> pd.Timestamp:
+    ts = pd.Timestamp(value)
+    if pd.isna(ts):
+        raise ValueError("Czas prognozy nie może być pusty.")
+    if ts.tzinfo is None:
+        ts = ts.tz_localize(timezone, ambiguous="raise", nonexistent="raise")
+    return ts.tz_convert("UTC").as_unit("ns")
+
+
+def trade_time_utc(dates: pd.Series, hours: pd.Series, timezone: str) -> pd.Series:
+    """1=00:00; 25=dodatkowa 02:00 zimowa. Wiosenna 03 jest niepoprawna.
+
+    Numeracja musi odpowiadać kolumnie godzinaHandlowa25 w hurtowni.
+    Nie utożsamiamy 25. godziny z północą następnego dnia.
+    """
+    h = pd.to_numeric(hours, errors="coerce")
+    normal = h.between(1, 24) & h.mod(1).eq(0)
+    valid = pd.to_datetime(dates, errors="coerce").dt.normalize()
+    local = valid + pd.to_timedelta(h.where(normal, 3) - 1, unit="h")
+    summer = local.dt.tz_localize(timezone, ambiguous=True, nonexistent="NaT")
+    winter = local.dt.tz_localize(timezone, ambiguous=False, nonexistent="NaT")
+    repeated = summer.ne(winter) & summer.notna() & winter.notna()
+    result = summer.dt.tz_convert("UTC").where(normal)
+    extra = h.eq(25) & repeated
+    result.loc[extra] = winter.loc[extra].dt.tz_convert("UTC")
+    return result
+
+
+def load_branch_energy(path: str | Path, config: PipelineConfig, return_measurements: bool = False):
+    mapping, mapping_table = load_branch_mapping(config.mapping_path)
+    raw = read_energy_file(path, sheet_regex=config.sheet_regex)
+    normalized, quality = normalize_energy(raw, mapping)
+    hourly, extra, measurements = aggregate_branch_energy(normalized, config.timezone, return_measurements=True)
+    result = (hourly, pd.concat([quality, extra], ignore_index=True), mapping_table)
+    return (*result, measurements) if return_measurements else result
+
+
+def load_prediction_measurements(path: str | Path, bundle: dict) -> pd.DataFrame:
+    # Przy predykcji używamy mapowania zapisanego z modelem, nie zmienionego słownika.
+    mapping = {_ascii_token(row.oddzial_code): row.punkt for row in bundle["branches"].itertuples()}
+    for alias, canonical in BRANCH_ALIASES.items():
+        if _ascii_token(canonical) in mapping:
+            mapping[_ascii_token(alias)] = mapping[_ascii_token(canonical)]
+    raw = read_energy_file(path, sheet_regex=bundle.get("input_schema", {}).get("sheet_regex", PipelineConfig().sheet_regex))
+    normalized, _ = normalize_energy(raw, mapping)
+    _, _, measurements = aggregate_branch_energy(normalized, bundle["settings"]["timezone"], return_measurements=True)
+    start = bundle.get("input_schema", {}).get("start_date")
+    if start:
+        measurements = measurements.loc[measurements["doba_handlowa"].ge(pd.Timestamp(start))].copy()
+    return measurements
+
+
+def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw", return_measurements: bool = False):
+    df = frame.copy()
+    df["oddzial_code"] = df["oddzial_code"].str.upper().replace(BRANCH_ALIASES)
+    unknown = sorted(df.loc[df["oddzial_code"].notna() & df["punkt"].isna(), "oddzial_code"].unique())
+    if unknown:
+        raise ValueError(f"Brak mapowania pogody dla oddziałów {unknown}. Uzupełnij oddzial_miasto.csv.")
+    # Wiersze z pustym oddziałem oraz kierunkiem 0 są poza portfelem oddziałów.
+    relevant = df["oddzial_code"].notna()
+    df = df.loc[relevant].copy()
+    direction = df["kierunek_energii"].map(_ascii_token)
+    reactive = direction.str.contains("bierne", na=False)
+    if reactive.any():
+        raise ValueError("W danych są wartości energii biernej. Eksportuj tylko energię czynną.")
+    if df["kierunek_energii_norm"].isna().any():
+        raise ValueError("Nie rozpoznano kierunku energii w kolumnach B/E.")
+    mismatch = ((df["kierunek_energii_norm"].eq("POBRANIE") & df["kierunek_code"].eq(-1))
+                | (df["kierunek_energii_norm"].eq("ODDANIE") & df["kierunek_code"].eq(1)))
+    if mismatch.any():
+        raise ValueError("Kierunki B i E są sprzeczne. Wyjaśnij znaczenie tych rekordów przed sumowaniem.")
+    if df["klient_nazwa"].isna().any():
+        raise ValueError("Brak nazwy MDD: nie można bezpiecznie wybrać korekt pomiaru.")
+    df["rodzaj_rank"] = _numeric(df["rodzaj"])
+    if (~df["rodzaj_rank"].isin(range(5))).any():
+        raise ValueError("Rodzaj danych musi być liczbą od 0 do 4.")
+    df["target_time_utc"] = trade_time_utc(df["doba_handlowa"], df["godzina_handlowa"], timezone)
+    if df["target_time_utc"].isna().any():
+        raise ValueError("Niepoprawna data/godzina energii. Sprawdź numerację 23/25 godzin podczas zmiany czasu.")
+    if df["wartosc_rzeczywista"].lt(0).any():
+        raise ValueError("Pobranie/oddanie ma ujemną wartość. Znaku nie odwracamy automatycznie.")
+    measurement = ["oddzial_code", "klient_nazwa", "kierunek_energii_norm", "target_time_utc"]
+    highest = df.groupby(measurement, dropna=False)["rodzaj_rank"].transform("max")
+    best = df.loc[df["rodzaj_rank"].eq(highest)].copy()
+    conflicts = best.groupby(measurement, dropna=False)["wartosc_rzeczywista"].nunique(dropna=False)
+    if conflicts.gt(1).any():
+        raise ValueError("Ten sam pomiar MDD ma różne wartości w tej samej najlepszej wersji danych.")
+    best = best.drop_duplicates(measurement, keep="last")
+    keys = ["oddzial_code", "punkt", "target_time_utc", "doba_handlowa", "godzina_handlowa", "kierunek_energii_norm"]
+    grouped = best.groupby(keys, dropna=False)
+    hourly = grouped.agg(
+        wartosc_rzeczywista=("wartosc_rzeczywista", "sum"),
+        liczba_mdd=("klient_nazwa", "nunique"),
+        liczba_wartosci=("wartosc_rzeczywista", "count"),
+        rodzaj_min=("rodzaj_rank", "min"), rodzaj_max=("rodzaj_rank", "max"),
+    ).reset_index()
+    incomplete = hourly["liczba_wartosci"].ne(hourly["liczba_mdd"])
+    hourly.loc[incomplete, "wartosc_rzeczywista"] = np.nan
+    extra = pd.DataFrame([
+        ["poza_oddzialami", int((~relevant).sum()), "puste A; pomiary nie zostały przypisane na podstawie poprzedniego wiersza"],
+        ["odrzucone_korekty_i_duplikaty", len(df) - len(best), "wybrano najwyższy rodzaj 4 > 3 > 2 > 1 > 0"],
+        ["niepelne_sumy_oddzialu", int(incomplete.sum()), "co najmniej jeden pomiar MDD nie ma wartości"],
+        ["historia_korekt_bez_czasu_dostepnosci", len(best), "końcowe pomiary są targetem; nie są domyślnie używane jako lagi"],
+    ], columns=["kontrola", "liczba", "szczegoly"])
+    result = (hourly.sort_values(["target_time_utc", "oddzial_code", "kierunek_energii_norm"]), extra)
+    return (*result, best) if return_measurements else result
+
+
+def prepare_weather_vintages(raw: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
+    weather = normalize_weather(raw, replace(config, weather_already_vintaged=True, preserve_weather_vintages=True))
+    # Jeśli UTC nie ma w eksporcie, godziny niejednoznaczne są odrzucane.
+    for utc_col, local_col in [("weather_valid_time_utc", "weather_valid_time"),
+                               ("weather_issue_time_utc", "weather_issue_time")]:
+        missing = weather[utc_col].isna()
+        if missing.any():
+            derived = weather.loc[missing, local_col].dt.tz_localize(
+                config.timezone, ambiguous="NaT", nonexistent="NaT"
+            ).dt.tz_convert("UTC")
+            weather.loc[missing, utc_col] = derived
+    weather = weather.loc[weather["weather_valid_time_utc"].notna() & weather["weather_issue_time_utc"].notna()].copy()
+    weather = weather.loc[weather["weather_valid_time_utc"].dt.minute.eq(0)
+                          & weather["weather_valid_time_utc"].dt.second.eq(0)].copy()
+    if weather["_weather_explicit_trade_key"].any():
+        expected = trade_time_utc(weather["weather_trade_date"], weather["weather_trade_hour"], config.timezone)
+        if expected.isna().any() or expected.ne(weather["weather_valid_time_utc"]).any():
+            raise ValueError("Klucze godzinaHandlowa25/dataCET nie odpowiadają czasowi UTC. Potwierdź numerację godzin w hurtowni.")
+    key = ["_punkt_key", "weather_valid_time_utc", "weather_issue_time_utc"]
+    conflicts = weather.groupby(key)[WEATHER_FEATURES].nunique(dropna=False).gt(1).any(axis=1)
+    if conflicts.any():
+        raise ValueError("Sprzeczne wersje pogody dla tego samego punktu, godziny i czasu źródła. Ustaw filtr właściciela/typu w SQL.")
+    weather = weather.drop_duplicates(key)
+    weather = weather.loc[weather["weather_issue_time_utc"].le(weather["weather_valid_time_utc"])].copy()
+    return weather
+
+
+def join_weather_asof(requests: pd.DataFrame, weather: pd.DataFrame) -> pd.DataFrame:
+    """Każdy wiersz ma własny origin; przez całe 72 h cutoff pozostaje zamrożony."""
+    left = requests.copy()
+    left["_punkt_key"] = left["punkt"].map(_ascii_token)
+    left["_request_order"] = np.arange(len(left))
+    columns = ["_punkt_key", "weather_valid_time_utc", "weather_issue_time_utc", *WEATHER_FEATURES]
+    right = weather[columns].rename(columns={"weather_valid_time_utc": "target_time_utc"})
+    # Eksport CSV może dać nanosekundy, a Timestamp z CLI sekundy.
+    # merge_asof wymaga identycznej rozdzielczości obu kluczy czasu.
+    for column in ["target_time_utc", "forecast_origin_utc"]:
+        left[column] = pd.to_datetime(left[column], utc=True).astype("datetime64[ns, UTC]")
+    for column in ["target_time_utc", "weather_issue_time_utc"]:
+        right[column] = pd.to_datetime(right[column], utc=True).astype("datetime64[ns, UTC]")
+    right = right.sort_values("weather_issue_time_utc")
+    joined = pd.merge_asof(
+        left.sort_values("forecast_origin_utc"), right,
+        left_on="forecast_origin_utc", right_on="weather_issue_time_utc",
+        by=["_punkt_key", "target_time_utc"], direction="backward", allow_exact_matches=True,
+    ).sort_values("_request_order").drop(columns="_request_order").reset_index(drop=True)
+    joined["pogoda_dopasowana"] = joined["weather_issue_time_utc"].notna()
+    joined["horyzont_h"] = (joined["target_time_utc"] - joined["forecast_origin_utc"]).dt.total_seconds() / 3600
+    joined["wiek_prognozy_h"] = (joined["forecast_origin_utc"] - joined["weather_issue_time_utc"]).dt.total_seconds() / 3600
+    return joined
+
+
+def historical_requests(energy: pd.DataFrame, horizon: int = 72, step_hours: int = 12) -> pd.DataFrame:
+    if horizon < 1 or step_hours < 1:
+        raise ValueError("Horyzont i odstęp uruchomień muszą być dodatnie.")
+    start = energy["target_time_utc"].min().floor("D")
+    end = energy["target_time_utc"].max()
+    origins = pd.date_range(start, end, freq=f"{step_hours}h", tz="UTC")
+    pieces = []
+    for offset in range(1, horizon + 1):
+        schedule = pd.DataFrame({"forecast_origin_utc": origins,
+                                 "target_time_utc": origins + pd.Timedelta(hours=offset)})
+        pieces.append(energy.merge(schedule, on="target_time_utc", how="inner", validate="many_to_one"))
+    return pd.concat(pieces, ignore_index=True)
+
+
+def future_requests(branch_table: pd.DataFrame, origin: object, horizon: int, timezone: str):
+    asof = utc_timestamp(origin, timezone)
+    if not 1 <= horizon <= 168:
+        raise ValueError("Horyzont musi należeć do zakresu 1–168 godzin.")
+    times = pd.date_range(asof.floor("h") + pd.Timedelta(hours=1), periods=horizon, freq="h", tz="UTC")
+    local = times.tz_convert(timezone)
+    hours = local.hour + 1
+    # Druga lokalna 02:00 jesienią ma numer handlowy 25.
+    wall = local.tz_localize(None)
+    second_02 = wall.hour == 2
+    second_02 &= np.array([x.dst().total_seconds() == 0 for x in local])
+    first_version = wall.tz_localize(timezone, ambiguous=True, nonexistent="NaT")
+    second_02 &= first_version.tz_convert("UTC") != times
+    hours = np.where(second_02, 25, hours)
+    grid = pd.DataFrame({"target_time_utc": times, "doba_handlowa": wall.normalize(),
+                         "godzina_handlowa": hours, "forecast_origin_utc": asof})
+    return branch_table[["oddzial_code", "punkt"]].drop_duplicates().merge(grid, how="cross")
