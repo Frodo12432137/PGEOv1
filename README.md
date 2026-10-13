@@ -18,6 +18,22 @@ Python/pyodbc. Dostępne jest też użycie eksportu pogody zamiast połączenia 
 
 **[Pełna instrukcja, format wejścia, parametry i ograniczenia](START_BILANSY_72H.md).**
 
+## Dla AI rozwijających projekt
+
+Zacznij od **[AGENTS.md](AGENTS.md)**. [Kontekst projektu](docs/AI_CONTEXT.md)
+wyjaśnia ustalenia biznesowe, dostępne dane i założenia do potwierdzenia,
+a [mapa architektury](docs/ARCHITECTURE.md) wskazuje moduły i ich odpowiedzialność.
+
+Projekt zawiera trzy skille w `.agents/skills/`:
+
+- [Kontrola danych i portfela](.agents/skills/pgeo-data-audit/SKILL.md).
+- [Trening i ocena modeli](.agents/skills/pgeo-train-evaluate/SKILL.md).
+- [Prognoza 72 h bez ponownego uczenia](.agents/skills/pgeo-predict-72h/SKILL.md).
+
+Każde AI może odczytać pliki `SKILL.md` bezpośrednio.
+Dodano też wejścia dla Claude (`CLAUDE.md`) i GitHub Copilot
+(`.github/copilot-instructions.md`), prowadzące do wspólnych instrukcji.
+
 ## Dane i pogoda
 
 - Excel/CSV: dziewięć kolumn A:I opisanych w instrukcji.

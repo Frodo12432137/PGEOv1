@@ -1,0 +1,4 @@
+interface:
+  display_name: "PGEO — prognoza bilansów 72 h"
+  short_description: "Prognozuj każdy OSD z zapisanych modeli bez nauki"
+  default_prompt: "Użyj $pgeo-predict-72h, aby przygotować prognozę bilansów PGEOv1 na kolejne 72 godziny bez ponownego treningu."

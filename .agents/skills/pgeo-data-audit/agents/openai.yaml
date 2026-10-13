@@ -1,0 +1,4 @@
+interface:
+  display_name: "PGEO — kontrola danych i portfela"
+  short_description: "Sprawdź korekty energii, pogodę i obecność MDD"
+  default_prompt: "Użyj $pgeo-data-audit, aby sprawdzić dane wejściowe PGEOv1 i wskazać założenia wymagające potwierdzenia."

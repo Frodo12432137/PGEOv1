@@ -1,0 +1,4 @@
+interface:
+  display_name: "PGEO — trening i ocena modeli"
+  short_description: "Trenuj bilanse i oceniaj wpływ pogody na prognozę"
+  default_prompt: "Użyj $pgeo-train-evaluate, aby wytrenować modele bilansów PGEOv1 i ocenić je na oddzielnym okresie testowym."
