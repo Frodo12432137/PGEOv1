@@ -13,10 +13,12 @@ pliku energii. Na podstawie samych zdjęć nie potwierdzono, czy jest to kWh czy
    Możesz uruchamiać go kilka razy dziennie. Nie wykonuje uczenia.
 
 Oba pliki można uruchomić strzałką ▶ w VS Code na komputerze służbowym.
-Trening pyta o plik energii i folder na model. Predykcja pyta o folder z modelem
-oraz opcjonalnie o aktualny eksport energii do sprawdzenia zmian klientów.
-Anulowanie wyboru tego dodatkowego pliku oznacza kontrolę według historii
-zapisanej podczas treningu. Wyniki zapisuje w osobnych folderach `prognozy`.
+Na początku pliku treningowego wpisz `SCIEZKA_ENERGII`, `FOLDER_MODELU` oraz
+ustawienia w `PARAMETRY`. Pusta ścieżka energii otwiera okno wyboru.
+W pliku prognozy ustaw ten sam folder modelu, źródło pogody i opcjonalny Excel
+do kontroli klientów. Pusta ścieżka energii oznacza kontrolę z historii treningu.
+Wyniki prognoz powstają w osobnych folderach `prognozy`.
+Pełny opis: **[PARAMETRY_I_RAPORTY.md](PARAMETRY_I_RAPORTY.md)**.
 
 ## Uruchomienie na komputerze służbowym
 
@@ -171,8 +173,8 @@ Dwa modele regresji gradientowej uczą się sumy pobrania i sumy oddania.
 Współdzielą dane oddziałów, a kod oddziału jest cechą. Bilans jest ich różnicą
 i może być ujemny. Pobranie i oddanie są ograniczane od dołu zerem.
 
-Porównywane są: sam kalendarz, kalendarz z temperaturą i promieniowaniem,
-podstawowa pogoda oraz pełny dostępny zestaw pogody. Uwzględniane są
+Porównywane są: sam kalendarz, temperatura, samo promieniowanie, temperatura
+z promieniowaniem, podstawowa pogoda oraz pełny dostępny zestaw. Uwzględniane są
 temperatura, promieniowanie całkowite i bezpośrednie, wiatr, zachmurzenie,
 opady konwekcyjne, widoczność, albedo i śnieg. Kierunek wiatru ma cechy sin/cos.
 Całkowicie puste kolumny ze zdjęć nie są sztucznie wypełniane zerami jako nowe
@@ -180,7 +182,10 @@ informacje. Jednostki promieniowania i pozostałych danych pozostają źródłow
 
 Dobór wykorzystuje osobne chronologiczne okno walidacyjne. Wynik jest średnim
 błędem znormalizowanym po oddziałach, aby duży oddział nie zdominował wyboru.
-Opcja `--tune` dodatkowo porównuje dwa zestawy parametrów drzew.
+Opcja `--tune` porównuje trzy zestawy parametrów każdej rodziny.
+`--models auto` dołącza CatBoost, jeśli jest zainstalowany; bez niego jawnie
+pozostaje HistGradientBoosting. Wariant i parametry wybiera wyłącznie walidacja.
+Każdy oddział/kierunek musi mieć odpowiednie pokrycie w walidacji i teście.
 Późniejsze, osobne okno testowe służy ocenie wybranego modelu oraz grupowej
 ważności pogody. Test nie wybiera zestawu cech. Końcowe modele są następnie
 uczone na całej dostępnej wspólnej historii, do limitu najnowszych wierszy.
@@ -202,6 +207,8 @@ wyłączone. Można je dodać po otrzymaniu historii dostępności kolejnych kor
 
 Folder treningu zawiera:
 
+- `raport_treningu.xlsx` — opis metryk, wybór modeli, błędy godzinowe/dobowe,
+  warunki pogody, największe pomyłki, pokrycie danych i wykresy;
 - `modele_oddzialow.joblib` — modele pobrania i oddania wraz ze schematem cech;
 - `manifest_oddzialy.json` — ustawienia, mapowanie i wersje bibliotek;
 - `porownanie_wariantow.csv` — wpływ zestawów pogody oraz parametrów na walidację;
@@ -221,6 +228,8 @@ Przy ośmiu oddziałach jest **576 wierszy bilansu**: 8 × 72. CSV ma separator 
 przecinek dziesiętny i UTF-8 BOM, aby dało się go otworzyć w polskim Excelu.
 Godziny UTC zawierają offset czasu; klucze doba/godzina handlowa są lokalne.
 Brak wymaganej pogody powoduje pustą prognozę oraz jawny status, nie pozorne zero.
+Częściowy brak wybranych cech daje `PROGNOZA_NIEPELNA_POGODA`, listę brakujących
+cech w szczegółach i kod zakończenia 2, także gdy model zwrócił wynik liczbowy.
 
 ## Terminal i praca bez połączenia z SQL
 

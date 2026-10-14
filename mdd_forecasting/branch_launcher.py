@@ -5,6 +5,83 @@ import traceback
 from datetime import datetime
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _path(value: str | Path) -> str:
+    path = Path(value).expanduser()
+    return str(path if path.is_absolute() else ROOT / path)
+
+
+def _options(settings: dict | None) -> list[str]:
+    arguments = []
+    for name, value in (settings or {}).items():
+        if value is None or value is False:
+            continue
+        option = "--" + name.replace("_", "-")
+        arguments.append(option)
+        if value is not True:
+            if isinstance(value, (list, tuple)):
+                arguments.extend(str(item) for item in value)
+            else:
+                arguments.append(str(value))
+    return arguments
+
+
+def configured_launch(training: bool, energy: str = "", artifacts_dir: str = "model_bilansu",
+                      weather_file: str = "", output_dir: str = "", options: dict | None = None,
+                      weather_options: dict | None = None, as_of: str = "") -> int:
+    """Ścieżki ustawione w kodzie omijają GUI; względne są względem repo, nie cwd VS Code."""
+    from .branch_database import DEFAULT_BRANCH_SQL
+    from .branch_cli import train_main, predict_main
+    energy = str(energy).strip()
+    artifacts_dir = str(artifacts_dir).strip()
+    weather_file = str(weather_file).strip()
+    root = None
+    try:
+        if (training and not energy) or not artifacts_dir:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            if training and not energy:
+                energy = filedialog.askopenfilename(parent=root, title="Wybierz historię energii A:I",
+                    filetypes=[("Excel i CSV", "*.xlsx *.xlsm *.csv"), ("Wszystkie pliki", "*.*")])
+                if not energy:
+                    return 0
+            if not artifacts_dir:
+                artifacts_dir = filedialog.askdirectory(parent=root, title="Folder zapisanych modeli", mustexist=not training)
+                if not artifacts_dir:
+                    return 0
+        if energy and not Path(_path(energy)).is_file():
+            raise FileNotFoundError(f"Nie znaleziono pliku energii: {_path(energy)}. Ustaw SCIEZKA_ENERGII na początku programu.")
+        if weather_file and not Path(_path(weather_file)).is_file():
+            raise FileNotFoundError(f"Nie znaleziono pliku pogody: {_path(weather_file)}.")
+        arguments = ["--artifacts-dir", _path(artifacts_dir)]
+        if energy:
+            arguments += ["--energy", _path(energy)]
+        arguments += ["--weather", _path(weather_file)] if weather_file else ["--weather-sql", str(DEFAULT_BRANCH_SQL)]
+        arguments += _options(weather_options)
+        arguments += _options(options)
+        if not training:
+            output = _path(output_dir) if output_dir else str(Path(_path(artifacts_dir)) / "prognozy" / datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
+            arguments += ["--output-dir", output]
+            if as_of:
+                arguments += ["--as-of", as_of]
+        return train_main(arguments) if training else predict_main(arguments)
+    except Exception:
+        log_dir = Path(_path(artifacts_dir or "model_bilansu"))
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log = log_dir / "blad_bilansow.txt"
+        log.write_text(traceback.format_exc(), encoding="utf-8")
+        print(f"Błąd. Szczegóły zapisano w {log}", flush=True)
+        raise
+    finally:
+        if root is not None:
+            root.destroy()
+
+
 def launch(training: bool) -> int:
     import tkinter as tk
     from tkinter import filedialog, messagebox

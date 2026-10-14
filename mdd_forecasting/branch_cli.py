@@ -60,8 +60,24 @@ def train_main(argv=None) -> int:
     parser.add_argument("--max-iter", type=int, default=180)
     parser.add_argument("--min-train-rows", type=int, default=200)
     parser.add_argument("--max-train-rows", type=int, default=400_000)
-    parser.add_argument("--tune", action="store_true", help="Porównaj również drugi zestaw parametrów.")
+    parser.add_argument("--models", choices=["auto", "hist_gradient_boosting", "catboost"], default="hist_gradient_boosting",
+                        help="auto porównuje HistGradientBoosting i zainstalowany CatBoost; wybór tylko na walidacji.")
+    parser.add_argument("--learning-rate", type=float, default=0.06)
+    parser.add_argument("--max-leaf-nodes", type=int, default=15)
+    parser.add_argument("--min-samples-leaf", type=int, default=20)
+    parser.add_argument("--l2-regularization", type=float, default=2.0)
+    parser.add_argument("--catboost-depth", type=int, default=6)
+    parser.add_argument("--catboost-l2-leaf-reg", type=float, default=5.0)
+    parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--random-state", type=int, default=42)
+    parser.add_argument("--min-evaluation-targets", type=int, default=24,
+                        help="Minimalna liczba unikalnych godzin każdego oddziału/kierunku osobno w walidacji i teście.")
+    parser.add_argument("--weather-variants", nargs="+", default=list(TrainingSettings().weather_variants),
+                        choices=list(TrainingSettings().weather_variants), help="Warianty pogody do porównania na walidacji.")
+    parser.add_argument("--tune", action="store_true", help="Porównaj trzy zestawy parametrów każdej rodziny modelu.")
     parser.add_argument("--skip-importance", action="store_true")
+    parser.add_argument("--importance-rows", type=int, default=1500,
+                        help="Maksymalna próbka testu do ważności grup pogody; 0 wyłącza.")
     parser.add_argument("--portfolio-grace-days", type=int, default=14,
                         help="Po ilu dniach braku pomiarów oznaczyć MDD do weryfikacji (nie koniec umowy).")
     _weather_arguments(parser)
@@ -71,7 +87,13 @@ def train_main(argv=None) -> int:
                                 validation_days=args.validation_days, test_days=args.test_days,
                                 label_delay_hours=args.label_delay_hours, max_iter=args.max_iter,
                                 min_train_rows=args.min_train_rows, max_train_rows=args.max_train_rows,
-                                tune=args.tune, importance_rows=0 if args.skip_importance else 1500)
+                                tune=args.tune, importance_rows=0 if args.skip_importance else args.importance_rows,
+                                model_backend=args.models, learning_rate=args.learning_rate,
+                                max_leaf_nodes=args.max_leaf_nodes, min_samples_leaf=args.min_samples_leaf,
+                                l2_regularization=args.l2_regularization, catboost_depth=args.catboost_depth,
+                                catboost_l2_leaf_reg=args.catboost_l2_leaf_reg, threads=args.threads,
+                                min_evaluation_targets=args.min_evaluation_targets,
+                                weather_variants=tuple(args.weather_variants), random_state=args.random_state)
     settings.validate()
     energy, quality, mapping, measurements = load_branch_energy(args.energy, config, return_measurements=True)
     energy = energy.loc[energy["doba_handlowa"].ge(pd.Timestamp(args.start_date))].copy()
@@ -87,7 +109,7 @@ def train_main(argv=None) -> int:
     weather = _weather(args, config, start, end, origin)
     print("Uczę modele. Porównuję pogodę na walidacji, następnie oceniam na osobnym teście.")
     from threadpoolctl import threadpool_limits
-    with threadpool_limits(limits=4):
+    with threadpool_limits(limits=settings.threads):
         bundle, reports = train_branch_models(energy, weather, settings)
     bundle["portfolio_reports"] = portfolio_reports
     bundle["portfolio_grace_days"] = args.portfolio_grace_days
@@ -102,8 +124,12 @@ def train_main(argv=None) -> int:
         write_csv(frame, directory / f"{name}.csv")
     for name, frame in portfolio_reports.items():
         write_csv(frame, directory / f"{name}.csv")
+    from .branch_diagnostics import write_training_workbook, print_training_summary
+    write_training_workbook(bundle, {**reports, **portfolio_reports, "kontrola_energii": quality},
+                            directory / "raport_treningu.xlsx")
     for direction, choice in bundle["models"].items():
         print(f"{direction}: wybrany wariant {choice['wariant']}")
+    print_training_summary(reports)
     print(f"Gotowe. Model i raporty: {directory.resolve()}")
     return 0
 
@@ -149,4 +175,7 @@ def predict_main(argv=None) -> int:
     unverified = int(balance["status_portfela"].ne("BEZ_DLUGICH_BRAKOW_W_POMIARACH").sum())
     print(f"Prognoza: {forecast_path.resolve()}. Brakujące bilanse: {missing}.")
     print(f"Wiersze z portfelem wymagającym weryfikacji: {unverified}. Sprawdź kolumnę status_portfela.")
-    return 2 if missing else 0
+    partial = int(balance["status"].eq("PROGNOZA_NIEPELNA_POGODA").sum())
+    if partial:
+        print(f"UWAGA: {partial} bilansów opiera się na niepełnej pogodzie. Szczegóły: brakujace_cechy_pogody w szczegoly_prognozy.csv.")
+    return 2 if missing or partial else 0

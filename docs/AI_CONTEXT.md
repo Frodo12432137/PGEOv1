@@ -86,9 +86,11 @@ Zmiany umów wewnątrz sumarycznego MDD mogą pozostać niewidoczne.
 
 ## Ocena i aktualny stan
 
-Implementacja używa `HistGradientBoostingRegressor`, chronologicznej walidacji
-i oddzielnego testu. Porównuje zestawy pogody i opcjonalnie parametry przez
-`--tune`. Raportuje oddziały oraz zakresy 1–24, 25–48 i 49–72 godzin.
+Implementacja używa `HistGradientBoostingRegressor` i opcjonalnego CatBoost,
+chronologicznej walidacji i oddzielnego testu. `--models auto` porównuje dostępne
+rodziny. Porównuje zestawy pogody i opcjonalnie trzy konfiguracje rodziny przez
+`--tune`. Raportuje oddziały, dokładne horyzonty, zakresy 1–24, 25–48 i 49–72 h,
+godziny, dni, miesiące, warunki pogody i największe błędy. Excel zawiera opis metryk.
 Profil mediany oddział/dzień tygodnia/godzina jest modelem odniesienia.
 Po wyborze końcowe modele są uczone na dostępnej wspólnej historii do limitu wierszy.
 
@@ -120,3 +122,11 @@ Stan przy przekazaniu projektu 13 października 2026:
 Po otrzymaniu plików najpierw sprawdź te założenia, potem wykonaj trening i oceń
 wyniki na danych PGE. Nowe decyzje zapisuj tutaj z rozróżnieniem potwierdzenia
 od założenia; nie utrwalaj w dokumentacji lokalnych haseł ani tokenów.
+
+Zmiany 14 października 2026: ścieżki i parametry są edytowalne na początku
+dwóch plików `uruchom_*_bilansow.py`; opis w
+[PARAMETRY_I_RAPORTY.md](../PARAMETRY_I_RAPORTY.md). Nowe artefakty mają format 3.
+Kontrola odrzuca brak pokrycia walidacji/testu oddziału i wykrywa luki pomiędzy
+pomiarami MDD w tej samej dobie, bez rozszerzania oczekiwanej obecności poza
+pierwszy/ostatni pomiar. Częściowa pogoda ma osobny status i kod 2.
+Nie wykonano treningu na rzeczywistych danych PGE ani połączenia z firmowym SQL.

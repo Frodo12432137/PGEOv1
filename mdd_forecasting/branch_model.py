@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 import json
 import platform
+from importlib.util import find_spec
+from time import perf_counter
 
 import numpy as np
 import pandas as pd
@@ -26,6 +28,8 @@ WEATHER_GROUPS = {
 }
 VARIANTS = {
     "kalendarz": [],
+    "temperatura": ["temperatura"],
+    "slonce": ["slonce"],
     "temperatura_slonce": ["temperatura", "slonce"],
     "pogoda_podstawowa": ["temperatura", "slonce", "chmury", "wiatr"],
     "pogoda_pelna": list(WEATHER_GROUPS),
@@ -49,6 +53,16 @@ class TrainingSettings:
     importance_rows: int = 1500
     timezone: str = "Europe/Warsaw"
     random_state: int = 42
+    model_backend: str = "hist_gradient_boosting"
+    learning_rate: float = 0.06
+    max_leaf_nodes: int = 15
+    min_samples_leaf: int = 20
+    l2_regularization: float = 2.0
+    catboost_depth: int = 6
+    catboost_l2_leaf_reg: float = 5.0
+    threads: int = 4
+    min_evaluation_targets: int = 24
+    weather_variants: tuple[str, ...] = tuple(VARIANTS)
 
     def validate(self):
         if not 1 <= self.horizon_hours <= 168:
@@ -57,6 +71,18 @@ class TrainingSettings:
             raise ValueError("Odstępy czasu, rozmiary okien i liczba iteracji muszą być dodatnie.")
         if self.max_train_rows < self.min_train_rows or self.label_delay_hours < 0:
             raise ValueError("Niepoprawny limit danych lub opóźnienie pomiarów.")
+        if self.model_backend not in {"auto", "hist_gradient_boosting", "catboost"}:
+            raise ValueError("Model: auto, hist_gradient_boosting albo catboost.")
+        if not np.isfinite(self.learning_rate) or not 0 < self.learning_rate <= 1:
+            raise ValueError("learning_rate musi należeć do (0, 1].")
+        if self.max_leaf_nodes < 2 or min(self.min_samples_leaf, self.threads, self.min_evaluation_targets) < 1:
+            raise ValueError("Liczba liści, obserwacji, wątków i celów oceny musi być dodatnia.")
+        if not 1 <= self.catboost_depth <= 12:
+            raise ValueError("Głębokość CatBoost musi należeć do zakresu 1–12.")
+        if any(not np.isfinite(v) or v < 0 for v in [self.l2_regularization, self.catboost_l2_leaf_reg]):
+            raise ValueError("Regularyzacja musi być nieujemna i skończona.")
+        if self.importance_rows < 0 or not self.weather_variants or set(self.weather_variants) - set(VARIANTS):
+            raise ValueError("Niepoprawna próbka ważności albo lista wariantów pogody.")
 
 
 def feature_frame(frame: pd.DataFrame, branch_codes: list[str], timezone_name: str) -> pd.DataFrame:
@@ -83,7 +109,7 @@ def feature_frame(frame: pd.DataFrame, branch_codes: list[str], timezone_name: s
     out["wiatr_sin"] = np.sin(radians)
     out["wiatr_cos"] = np.cos(radians)
     out["wiek_prognozy_h"] = frame["wiek_prognozy_h"]
-    return out.replace([np.inf, -np.inf], np.nan)
+    return out.replace([np.inf, -np.inf], np.nan).astype(float)
 
 
 def model_columns(variant: str, branch_codes: list[str], available: set[str]) -> list[str]:
@@ -93,13 +119,54 @@ def model_columns(variant: str, branch_codes: list[str], available: set[str]) ->
 
 
 def _new_model(settings: TrainingSettings, parameters: dict):
+    parameters = parameters.copy()
+    backend = parameters.pop("backend", "hist_gradient_boosting")
+    if backend == "catboost":
+        try:
+            from catboost import CatBoostRegressor
+        except ImportError as exc:
+            raise RuntimeError("CatBoost nie jest zainstalowany. Uruchom: python -m pip install -r mdd_forecasting/requirements-production.txt") from exc
+        return CatBoostRegressor(iterations=settings.max_iter, loss_function="RMSE",
+                                 random_seed=settings.random_state, thread_count=settings.threads,
+                                 allow_writing_files=False, verbose=False, **parameters)
     from sklearn.ensemble import HistGradientBoostingRegressor
     # Dobór parametrów ma osobne chronologiczne okno. Brak losowej walidacji fit().
     return HistGradientBoostingRegressor(
         max_iter=settings.max_iter, early_stopping=False,
-        min_samples_leaf=20, l2_regularization=2.0,
         random_state=settings.random_state, **parameters,
     )
+
+
+def candidate_parameters(settings: TrainingSettings) -> list[dict]:
+    """Jawny, ograniczony grid; żaden parametr nie jest dobierany na teście."""
+    backends = [settings.model_backend]
+    if settings.model_backend == "auto":
+        backends = ["hist_gradient_boosting"]
+        if find_spec("catboost") is not None:
+            backends.append("catboost")
+        else:
+            print("CatBoost nie jest zainstalowany: porównuję warianty HistGradientBoosting. Opcjonalna instalacja: requirements-production.txt", flush=True)
+    candidates = []
+    for backend in backends:
+        if backend == "hist_gradient_boosting":
+            base = {"backend": backend, "learning_rate": settings.learning_rate,
+                    "max_leaf_nodes": settings.max_leaf_nodes, "min_samples_leaf": settings.min_samples_leaf,
+                    "l2_regularization": settings.l2_regularization}
+            candidates.append(base)
+            if settings.tune:
+                candidates.extend([{**base, "learning_rate": settings.learning_rate / 2,
+                                    "max_leaf_nodes": max(2, settings.max_leaf_nodes // 2),
+                                    "l2_regularization": settings.l2_regularization * 2},
+                                   {**base, "max_leaf_nodes": settings.max_leaf_nodes * 2 + 1}])
+        else:
+            base = {"backend": backend, "learning_rate": settings.learning_rate,
+                    "depth": settings.catboost_depth, "l2_leaf_reg": settings.catboost_l2_leaf_reg}
+            candidates.append(base)
+            if settings.tune:
+                candidates.extend([{**base, "depth": max(1, settings.catboost_depth - 2)},
+                                   {**base, "depth": min(12, settings.catboost_depth + 2),
+                                    "learning_rate": settings.learning_rate / 2}])
+    return candidates
 
 
 def _predict(model, features: pd.DataFrame, columns: list[str]) -> np.ndarray:
@@ -112,7 +179,7 @@ def _predict(model, features: pd.DataFrame, columns: list[str]) -> np.ndarray:
 def _macro_error(actual: pd.DataFrame, predicted: np.ndarray, scales: pd.Series) -> float:
     errors = pd.Series(np.abs(predicted - actual["wartosc_rzeczywista"].to_numpy()), index=actual.index)
     per_branch = errors.groupby(actual["oddzial_code"]).mean()
-    return float((per_branch / scales.reindex(per_branch.index).clip(lower=1)).mean())
+    return float((per_branch / scales.reindex(per_branch.index).clip(lower=1e-12)).mean())
 
 
 def _profile(frame: pd.DataFrame, timezone_name: str) -> pd.DataFrame:
@@ -131,7 +198,7 @@ def profile_predictions(frame: pd.DataFrame, profile: pd.DataFrame, timezone_nam
     requests["_row"] = np.arange(len(frame))
     keys = ["oddzial_code", "kierunek_energii_norm", "dzien_tygodnia", "godzina"]
     joined = requests.merge(profile, how="left", on=keys, validate="many_to_one").sort_values("_row")
-    return joined["wartosc_rzeczywista"].to_numpy(dtype=float)
+    return joined["wartosc_rzeczywista"].to_numpy(dtype=float, na_value=np.nan)
 
 
 def metrics_table(frame: pd.DataFrame, actual: str, predicted: str, kind: str) -> pd.DataFrame:
@@ -141,17 +208,24 @@ def metrics_table(frame: pd.DataFrame, actual: str, predicted: str, kind: str) -
         scopes = [(f"1-{maximum}", part)]
         for lo in range(0, maximum, 24):
             hi = min(lo + 24, maximum)
+            if lo == 0 and hi == maximum:
+                continue
             scopes.append((f"{lo + 1}-{hi}", part.loc[part["horyzont_h"].gt(lo) & part["horyzont_h"].le(hi)]))
         for horizon, group in scopes:
-            y = group[actual].to_numpy(dtype=float)
-            p = group[predicted].to_numpy(dtype=float)
+            y = group[actual].to_numpy(dtype=float, na_value=np.nan)
+            p = group[predicted].to_numpy(dtype=float, na_value=np.nan)
             mask = np.isfinite(y) & np.isfinite(p)
             y, p = y[mask], p[mask]
             if len(y):
                 error = p - y
                 rows.append({"model": kind, "oddzial_code": branch, "horyzont": horizon,
-                             "n": len(y), "mae": float(np.abs(error).mean()),
+                             "n": len(y), "n_oczekiwane": len(group), "pokrycie": len(y) / len(group),
+                             "mae": float(np.abs(error).mean()),
                              "rmse": float(np.sqrt(np.mean(error ** 2))), "bias": float(error.mean()),
+                             "mediana_bledu_abs": float(np.median(np.abs(error))),
+                             "p90_bledu_abs": float(np.quantile(np.abs(error), .9)),
+                             "p95_bledu_abs": float(np.quantile(np.abs(error), .95)),
+                             "max_bledu_abs": float(np.abs(error).max()),
                              "wape": float(np.abs(error).sum() / np.abs(y).sum()) if np.abs(y).sum() else np.nan})
     return pd.DataFrame(rows)
 
@@ -202,11 +276,9 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
     features = feature_frame(data, branches, settings.timezone)
     # Dostępność cech ustalamy wyłącznie na początkowej części historii.
     available = set(features.columns[features.loc[train.index].notna().any()])
-    grid = [{"learning_rate": 0.06, "max_leaf_nodes": 15}]
-    if settings.tune:
-        grid.append({"learning_rate": 0.1, "max_leaf_nodes": 31})
+    grid = candidate_parameters(settings)
     chosen = {}
-    comparisons, importance_rows = [], []
+    comparisons, importance_rows, coverage_rows = [], [], []
     test_predictions = test.copy()
     test_predictions["wartosc_przewidywana"] = np.nan
     test_predictions["wartosc_bazowa"] = np.nan
@@ -216,17 +288,26 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
         heldout = test.loc[test["kierunek_energii_norm"].eq(direction)]
         if len(fit_rows) < settings.min_train_rows or val.empty or heldout.empty:
             raise ValueError(f"Za mało danych do nauki/walidacji/testu kierunku {direction}.")
-        if set(fit_rows["oddzial_code"]) != set(branches):
-            raise ValueError(f"Kierunek {direction} nie ma historii dla wszystkich oddziałów. Nie zakładamy zerowego oddania.")
+        for stage, stage_data in [("trening", fit_rows), ("walidacja", val), ("test", heldout)]:
+            counts = stage_data.groupby("oddzial_code")["target_time_utc"].nunique().reindex(branches, fill_value=0)
+            minimum = 1 if stage == "trening" else settings.min_evaluation_targets
+            for branch, count in counts.items():
+                coverage_rows.append({"etap": stage, "kierunek": direction, "oddzial_code": branch,
+                                      "unikalne_godziny": int(count), "minimum": minimum})
+            insufficient = counts.loc[counts.lt(minimum)]
+            if not insufficient.empty:
+                raise ValueError(f"Brak wystarczającego pokrycia: {stage}, {direction}, oddziały {insufficient.to_dict()}. Minimum: {minimum} unikalnych godzin; nie zakładamy zera.")
         scales = fit_rows.groupby("oddzial_code")["wartosc_rzeczywista"].mean()
         best_score = float("inf")
         used_specs = set()
-        for variant in VARIANTS:
+        for variant in settings.weather_variants:
             cols = model_columns(variant, branches, available)
             if tuple(cols) in used_specs:
                 continue
             used_specs.add(tuple(cols))
             for parameters in grid:
+                started = perf_counter()
+                print(f"{direction}: {parameters['backend']}, pogoda={variant}, parametry={parameters}", flush=True)
                 model = _new_model(settings, parameters)
                 model.fit(features.loc[fit_rows.index, cols], fit_rows["wartosc_rzeczywista"])
                 prediction = _predict(model, features.loc[val.index], cols)
@@ -234,11 +315,13 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
                 comparisons.append({"kierunek": direction, "wariant": variant, **parameters,
                                     "walidacja_macro_mae_norm": score,
                                     "walidacja_mae": float(np.abs(prediction - val["wartosc_rzeczywista"].to_numpy()).mean()),
-                                    "liczba_cech": len(cols), "liczba_wierszy": len(val)})
+                                    "liczba_cech": len(cols), "liczba_wierszy": len(val),
+                                    "czas_s": perf_counter() - started})
                 if score < best_score:
                     best_score = score
                     chosen[direction] = {"wariant": variant, "columns": cols, "parameters": parameters}
         choice = chosen[direction]
+        print(f"{direction}: wybrano {choice['parameters']['backend']} / {choice['wariant']}, błąd walidacji={best_score:.5f}. Oceniam na osobnym teście.", flush=True)
         # Holdout nie bierze udziału w wyborze wariantu/parametrów.
         before_test = data.loc[data["target_time_utc"].lt(test_start - embargo)
                                & data["kierunek_energii_norm"].eq(direction)]
@@ -255,6 +338,9 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
             for group, group_columns in WEATHER_GROUPS.items():
                 used = [c for c in group_columns if c in choice["columns"]]
                 if not used:
+                    importance_rows.append({"kierunek": direction, "grupa_pogody": group,
+                                            "wzrost_macro_mae_norm": np.nan, "odchylenie": np.nan,
+                                            "n": len(sample), "uzyta_w_modelu": False})
                     continue
                 scores = []
                 for _ in range(3):
@@ -265,7 +351,7 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
                     scores.append(_macro_error(sample, _predict(model, shuffled, choice["columns"]), scales) - base_error)
                 importance_rows.append({"kierunek": direction, "grupa_pogody": group,
                                         "wzrost_macro_mae_norm": float(np.mean(scores)),
-                                        "odchylenie": float(np.std(scores)), "n": len(sample)})
+                                        "odchylenie": float(np.std(scores)), "n": len(sample), "uzyta_w_modelu": True})
         # Końcowy model zapisujemy dopiero po zamknięciu oceny holdout.
         final_rows = _cap(data.loc[data["kierunek_energii_norm"].eq(direction)], settings.max_train_rows)
         final_model = _new_model(settings, choice["parameters"])
@@ -286,7 +372,7 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
     branch_table = energy[["oddzial_code", "punkt"]].drop_duplicates()
     if branch_table["oddzial_code"].duplicated().any():
         raise ValueError("Oddział ma kilka punktów pogodowych.")
-    bundle = {"format_version": 2, "settings": asdict(settings), "branches": branch_table,
+    bundle = {"format_version": 3, "settings": asdict(settings), "branches": branch_table,
               "models": chosen, "training_target_max_utc": str(data["target_time_utc"].max()),
               "created_at_utc": datetime.now(timezone.utc).isoformat(),
               "baseline_profile": _profile(data, settings.timezone)}
@@ -300,12 +386,19 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
         ["backtest_retrospektywny", 1, "targety są najlepszymi wersjami aktualnego eksportu; historyczna dostępność korekt nie jest znana"],
         ["lagi_energii", 0, "wyłączone do otrzymania historii czasów dostępności korekt"],
     ], columns=["kontrola", "liczba", "szczegoly"])
-    return bundle, {
-        "porownanie_wariantow": pd.DataFrame(comparisons),
-        "waznosc_pogody": pd.DataFrame(importance_rows, columns=["kierunek", "grupa_pogody", "wzrost_macro_mae_norm", "odchylenie", "n"]),
+    comparison = pd.DataFrame(comparisons)
+    comparison["ranking_walidacji"] = comparison.groupby("kierunek")["walidacja_macro_mae_norm"].rank(method="first").astype(int)
+    comparison["wybrany"] = comparison["ranking_walidacji"].eq(1)
+    reports = {
+        "porownanie_wariantow": comparison,
+        "waznosc_pogody": pd.DataFrame(importance_rows, columns=["kierunek", "grupa_pogody", "wzrost_macro_mae_norm", "odchylenie", "n", "uzyta_w_modelu"]),
         "metryki_test": pd.concat(direction_metrics, ignore_index=True),
-        "backtest_bilans": balance, "kontrola_modelu": quality,
+        "backtest_bilans": balance, "kontrola_modelu": quality, "pokrycie_okien": pd.DataFrame(coverage_rows),
     }
+    from .branch_diagnostics import diagnostic_tables, weather_coverage
+    reports.update(diagnostic_tables(test_predictions, balance, settings.timezone))
+    reports["pokrycie_pogody"] = weather_coverage(joined)
+    return bundle, reports
 
 
 def save_bundle(bundle: dict, directory: str | Path):
@@ -315,6 +408,9 @@ def save_bundle(bundle: dict, directory: str | Path):
     target.mkdir(parents=True, exist_ok=True)
     bundle["versions"] = {"python": platform.python_version(), "sklearn": sklearn.__version__,
                            "numpy": np.__version__, "pandas": pd.__version__, "joblib": joblib.__version__}
+    if any(spec["parameters"].get("backend") == "catboost" for spec in bundle["models"].values()):
+        import catboost
+        bundle["versions"]["catboost"] = catboost.__version__
     temporary = target / "modele_oddzialow.joblib.tmp"
     joblib.dump(bundle, temporary)
     temporary.replace(target / "modele_oddzialow.joblib")
@@ -330,10 +426,14 @@ def load_bundle(directory: str | Path) -> dict:
     import joblib
     import sklearn
     bundle = joblib.load(Path(directory) / "modele_oddzialow.joblib")
-    if bundle.get("format_version") not in {1, 2}:
+    if bundle.get("format_version") not in {1, 2, 3}:
         raise ValueError("Nieobsługiwana wersja plików modelu.")
     if bundle.get("versions", {}).get("sklearn") != sklearn.__version__:
         raise ValueError("Wersja scikit-learn różni się od wersji treningu. Użyj wersji z manifestu albo wykonaj trening ponownie.")
+    if "catboost" in bundle.get("versions", {}):
+        import catboost
+        if bundle["versions"]["catboost"] != catboost.__version__:
+            raise ValueError("Wersja CatBoost różni się od wersji treningu. Użyj wersji z manifestu.")
     return bundle
 
 
@@ -361,6 +461,10 @@ def predict_branches(bundle: dict, weather: pd.DataFrame, origin: object, horizo
         if substantive:
             mask = mask & features[substantive].notna().any(axis=1)
         part["status"] = np.where(mask, "PROGNOZA", "BRAK_POGODY_PRZED_URUCHOMIENIEM")
+        partial = mask & features[substantive].isna().any(axis=1) if substantive else pd.Series(False, index=part.index)
+        part.loc[partial, "status"] = "PROGNOZA_NIEPELNA_POGODA"
+        part["brakujace_cechy_pogody"] = features[substantive].isna().apply(
+            lambda row: ", ".join(row.index[row]), axis=1) if substantive else ""
         if mask.any():
             part.loc[mask, "wartosc_przewidywana"] = _predict(choice["model"], features.loc[mask], choice["columns"])
         part["wartosc_bazowa"] = profile_predictions(part, bundle["baseline_profile"], settings.timezone)
@@ -371,6 +475,12 @@ def predict_branches(bundle: dict, weather: pd.DataFrame, origin: object, horizo
                                       "oddanie_wartosc_przewidywana": "oddanie",
                                       "bilans_wartosc_przewidywana": "bilans"})
     balance["status"] = np.where(balance["bilans"].notna(), "PROGNOZA", "BRAK_PROGNOZY_KIERUNKU")
+    partial_keys = details.loc[details["status"].eq("PROGNOZA_NIEPELNA_POGODA"),
+                               ["oddzial_code", "target_time_utc"]].drop_duplicates()
+    if not partial_keys.empty:
+        index = pd.MultiIndex.from_frame(balance[["oddzial_code", "target_time_utc"]])
+        partial_index = pd.MultiIndex.from_frame(partial_keys)
+        balance.loc[index.isin(partial_index) & balance["bilans"].notna(), "status"] = "PROGNOZA_NIEPELNA_POGODA"
     from .portfolio import annotate_portfolio
     effective_reports = portfolio_reports if portfolio_reports is not None else bundle.get("portfolio_reports")
     return annotate_portfolio(balance, details, effective_reports, asof,

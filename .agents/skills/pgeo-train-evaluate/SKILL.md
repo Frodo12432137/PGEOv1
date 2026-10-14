@@ -32,12 +32,13 @@ Przy działającym firmowym SQL zastąp `--weather pogoda_historia.csv` przez
 `--weather-sql mdd_forecasting/sql/pogoda_bilans_historia.sql`.
 GUI: `python uruchom_trening_bilansow.py` lub strzałka VS Code.
 Opcje sprawdź przez `python -m mdd_forecasting.train --help`.
-`--tune` porównuje dodatkowy zestaw parametrów; `--skip-importance` pomija
+`--tune` porównuje trzy konfiguracje rodziny, `--models auto` dołącza zainstalowany
+CatBoost; `--skip-importance` pomija
 obliczanie ważności. Dobierz koszt obliczeń do zadania użytkownika.
 
 ## Zachowaj poprawną ocenę
 
-`branch_model.py` uczy dwa modele `HistGradientBoostingRegressor`, po jednym
+`branch_model.py` uczy dwa modele HistGradientBoosting lub CatBoost, po jednym
 dla pobrania i oddania, na wspólnych danych oddziałów. Kod oddziału jest cechą;
 nie mieszaj wyników OSD w jeden bilans. Treningowy horyzont domyślny to 72 h,
 a symulowane origins są domyślnie co 12 h.
@@ -62,6 +63,9 @@ Porównaj ML z profilem historycznym, osobno dla oddziałów, kierunków,
 bilansu oraz zakresów 1–24, 25–48 i 49–72 h. Uwzględnij pokrycie oraz
 normalizację błędu po oddziałach. WAPE przy małym bilansie wymaga ostrożnej
 interpretacji; podaj też MAE, RMSE i bias.
+Otwórz `raport_treningu.xlsx`; szczegółowe ustawienia i interpretacja są w
+[PARAMETRY_I_RAPORTY.md](../../../PARAMETRY_I_RAPORTY.md). Zmiany konfiguracji,
+raportów i CatBoost sprawdź także w `tests.test_branch_training_tools`.
 
 Przekaż `modele_oddzialow.joblib` wraz z `manifest_oddzialy.json` w folderze
 artefaktów, nie jako domyślny commit danych. Zapisz zakres historii, ustawienia,

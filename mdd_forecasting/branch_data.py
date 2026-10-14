@@ -70,6 +70,36 @@ def load_prediction_measurements(path: str | Path, bundle: dict) -> pd.DataFrame
     return measurements
 
 
+def _within_day_gaps(measurements: pd.DataFrame, timezone: str) -> pd.DataFrame:
+    """Luki między pomiarami tego samego MDD w tej samej dobie; bez domyślania umów.
+
+    Nie rozszerzamy oczekiwanej obecności przed pierwszy ani po ostatni pomiar.
+    Dłuższe przerwy między dobami opisuje odrębny audyt portfela.
+    """
+    keys = ["oddzial_code", "punkt", "target_time_utc", "doba_handlowa", "godzina_handlowa", "kierunek_energii_norm"]
+    scope = ["oddzial_code", "punkt", "klient_nazwa", "kierunek_energii_norm", "doba_handlowa"]
+    ordered = measurements.sort_values([*scope, "target_time_utc"])
+    previous = ordered.groupby(scope, dropna=False)["target_time_utc"].shift()
+    difference = (ordered["target_time_utc"] - previous).dt.total_seconds().div(3600)
+    rows = []
+    for index in difference.loc[difference.gt(1)].index:
+        row = ordered.loc[index]
+        for time in pd.date_range(previous.loc[index] + pd.Timedelta(hours=1),
+                                  row["target_time_utc"] - pd.Timedelta(hours=1), freq="h"):
+            local = time.tz_convert(timezone)
+            wall = local.tz_localize(None)
+            first = wall.tz_localize(timezone, ambiguous=True)
+            hour = 25 if local.hour == 2 and first.tz_convert("UTC") != time else local.hour + 1
+            rows.append({"oddzial_code": row["oddzial_code"], "punkt": row["punkt"],
+                         "target_time_utc": time, "doba_handlowa": row["doba_handlowa"],
+                         "godzina_handlowa": hour, "kierunek_energii_norm": row["kierunek_energii_norm"],
+                         "klient_nazwa": row["klient_nazwa"]})
+    if not rows:
+        return pd.DataFrame(columns=[*keys, "brakujace_rekordy_mdd"])
+    return pd.DataFrame(rows).groupby(keys, as_index=False)["klient_nazwa"].nunique().rename(
+        columns={"klient_nazwa": "brakujace_rekordy_mdd"})
+
+
 def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw", return_measurements: bool = False):
     df = frame.copy()
     df["oddzial_code"] = df["oddzial_code"].str.upper().replace(BRANCH_ALIASES)
@@ -80,7 +110,7 @@ def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw"
     relevant = df["oddzial_code"].notna()
     df = df.loc[relevant].copy()
     direction = df["kierunek_energii"].map(_ascii_token)
-    reactive = direction.str.contains("bierne", na=False)
+    reactive = direction.str.contains("biern", na=False)
     if reactive.any():
         raise ValueError("W danych są wartości energii biernej. Eksportuj tylko energię czynną.")
     if df["kierunek_energii_norm"].isna().any():
@@ -99,6 +129,8 @@ def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw"
         raise ValueError("Niepoprawna data/godzina energii. Sprawdź numerację 23/25 godzin podczas zmiany czasu.")
     if df["wartosc_rzeczywista"].lt(0).any():
         raise ValueError("Pobranie/oddanie ma ujemną wartość. Znaku nie odwracamy automatycznie.")
+    if df["wartosc_rzeczywista"].isin([np.inf, -np.inf]).any():
+        raise ValueError("Pomiar energii musi być skończoną liczbą albo brakiem wartości.")
     measurement = ["oddzial_code", "klient_nazwa", "kierunek_energii_norm", "target_time_utc"]
     highest = df.groupby(measurement, dropna=False)["rodzaj_rank"].transform("max")
     best = df.loc[df["rodzaj_rank"].eq(highest)].copy()
@@ -114,12 +146,19 @@ def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw"
         liczba_wartosci=("wartosc_rzeczywista", "count"),
         rodzaj_min=("rodzaj_rank", "min"), rodzaj_max=("rodzaj_rank", "max"),
     ).reset_index()
-    incomplete = hourly["liczba_wartosci"].ne(hourly["liczba_mdd"])
+    gaps = _within_day_gaps(best, timezone)
+    if not gaps.empty:
+        hourly = hourly.merge(gaps, on=keys, how="outer", validate="one_to_one")
+    else:
+        hourly["brakujace_rekordy_mdd"] = 0
+    hourly["brakujace_rekordy_mdd"] = hourly["brakujace_rekordy_mdd"].fillna(0).astype(int)
+    incomplete = hourly["liczba_wartosci"].ne(hourly["liczba_mdd"]) | hourly["brakujace_rekordy_mdd"].gt(0)
     hourly.loc[incomplete, "wartosc_rzeczywista"] = np.nan
     extra = pd.DataFrame([
         ["poza_oddzialami", int((~relevant).sum()), "puste A; pomiary nie zostały przypisane na podstawie poprzedniego wiersza"],
         ["odrzucone_korekty_i_duplikaty", len(df) - len(best), "wybrano najwyższy rodzaj 4 > 3 > 2 > 1 > 0"],
         ["niepelne_sumy_oddzialu", int(incomplete.sum()), "co najmniej jeden pomiar MDD nie ma wartości"],
+        ["luki_godzinowe_mdd_w_dobie", int(hourly["brakujace_rekordy_mdd"].sum()), "brak rekordu między pomiarami tego samego MDD w tej samej dobie; suma pozostaje brakiem"],
         ["historia_korekt_bez_czasu_dostepnosci", len(best), "końcowe pomiary są targetem; nie są domyślnie używane jako lagi"],
     ], columns=["kontrola", "liczba", "szczegoly"])
     result = (hourly.sort_values(["target_time_utc", "oddzial_code", "kierunek_energii_norm"]), extra)

@@ -26,7 +26,7 @@ flowchart TD
 |---|---|
 | [`uruchom_trening_bilansow.py`](../uruchom_trening_bilansow.py) | wejście przez strzałkę VS Code; wybór plików/folderu |
 | [`uruchom_prognoze_bilansow.py`](../uruchom_prognoze_bilansow.py) | powtarzalna predykcja z zapisanego modelu |
-| [`branch_launcher.py`](../mdd_forecasting/branch_launcher.py) | wspólne okna tkinter dla obu wejść |
+| [`branch_launcher.py`](../mdd_forecasting/branch_launcher.py) | konfiguracja ze ścieżek w kodzie, opcje CLI, opcjonalne okna tkinter |
 | [`train.py`](../mdd_forecasting/train.py), [`predict.py`](../mdd_forecasting/predict.py) | modułowe wejścia CLI |
 | [`branch_cli.py`](../mdd_forecasting/branch_cli.py) | opcje CLI, przepływ operacji i zapis CSV |
 | [`io.py`](../mdd_forecasting/io.py), [`config.py`](../mdd_forecasting/config.py) | odczyt plików, aliasy kolumn, normalizacja i konfiguracja |
@@ -34,6 +34,7 @@ flowchart TD
 | [`branch_database.py`](../mdd_forecasting/branch_database.py) | odczyt oddzielnego SQL, pyodbc i zamknięcie połączenia |
 | [`pogoda_bilans_historia.sql`](../mdd_forecasting/sql/pogoda_bilans_historia.sql) | godzinowe archiwum pogody z pięcioma parametrami |
 | [`branch_model.py`](../mdd_forecasting/branch_model.py) | cechy, dwa regresory, dobór wariantów, test, serializacja i prognoza |
+| [`branch_diagnostics.py`](../mdd_forecasting/branch_diagnostics.py) | diagnostyka odłożonego testu, porównanie z profilem, raport Excel i wykresy |
 | [`portfolio.py`](../mdd_forecasting/portfolio.py) | obecność MDD, przerwy, zmiany zestawów i statusy portfela |
 | [`oddzial_miasto.csv`](../mdd_forecasting/config/oddzial_miasto.csv) | przypisanie oddziałów do punktów pogody |
 
@@ -53,10 +54,11 @@ obsługują starszy przepływ MDD. Opisuje go [README pakietu](../mdd_forecastin
   `future_requests()` zaczyna od następnej pełnej godziny i odlicza godziny w UTC.
 - `train_branch_models()` dobiera modele i zwraca raporty. `save_bundle()`
   zapisuje `modele_oddzialow.joblib` oraz `manifest_oddzialy.json`.
-  Format zapisu to obecnie 2; odczyt dopuszcza 1 i 2.
+  Format zapisu to obecnie 3; odczyt dopuszcza 1, 2 i 3.
 - `load_bundle()` wymaga tej samej wersji scikit-learn co trening.
   `predict_branches()` wymaga origin po końcu historii treningowej i horyzontu
-  nie większego niż treningowy. Nie wykonuje uczenia.
+  nie większego niż treningowy. Nie wykonuje uczenia. Wybrany CatBoost wymaga
+  tej samej wersji CatBoost co trening.
 - `analyze_portfolio()` operuje na pomiarach wybranych po korektach.
   `annotate_portfolio()` porównuje aktualny eksport z portfelem treningowym,
   jeśli został dostarczony. Nie modyfikuje prognozowanych wolumenów.
@@ -85,6 +87,7 @@ Kod 0 nie jest potwierdzeniem aktualnych umów ani dokładności prognozy.
 | [`test_branch_forecasting.py`](../tests/test_branch_forecasting.py) | korekty, sumy, pogoda as-of, DST, uczenie/zapis/odczyt i predykcja bez fit |
 | [`test_portfolio.py`](../tests/test_portfolio.py) | przerwy, powroty, zera, podmiana MDD przy tej samej liczbie i statusy |
 | [`test_mdd_forecasting.py`](../tests/test_mdd_forecasting.py) | współdzielone elementy i starszy przepływ |
+| [`test_branch_training_tools.py`](../tests/test_branch_training_tools.py) | konfiguracja ścieżek, luki i energia bierna, pokrycie testu, statystyki/Excel, częściowa pogoda i opcjonalny CatBoost |
 
 Przykłady poleceń są w instrukcji i skillach. Aktualny zestaw opcji sprawdzisz przez
 `python -m mdd_forecasting.train --help` oraz

@@ -59,11 +59,15 @@ Nowy przepływ: `python -m mdd_forecasting.train` oraz
 ```bash
 python -m pip install -r mdd_forecasting/requirements.txt
 python -m unittest tests.test_portfolio tests.test_branch_forecasting tests.test_mdd_forecasting -v
+python -m unittest tests.test_branch_training_tools -v
 ```
 
 Uruchamiaj sprawdzenia odpowiednie do zmiany. Same opisy i skille wymagają
 sprawdzenia linków, poleceń i zgodności z kodem, a nie kosztownego treningu.
 Nie przedstawiaj syntetycznych testów jako oceny jakości na danych PGE.
+Po zmianie konfiguracji treningu i raportów uwzględnij `tests.test_branch_training_tools`;
+jego próba CatBoost wymaga opcjonalnej biblioteki. Ustawienia użytkownika i opis
+raportu Excel są w [PARAMETRY_I_RAPORTY.md](PARAMETRY_I_RAPORTY.md).
 Zgłaszaj różnicę między wynikiem sprawdzonym, założeniem i rzeczą nieprzetestowaną.
 
 ## Dane i publikowanie

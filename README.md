@@ -7,8 +7,9 @@ System przygotowuje osobny godzinowy bilans dla każdego oddziału/OSD PGE:
 
 1. Pobierz lub sklonuj repozytorium i otwórz cały folder w VS Code.
 2. Zainstaluj biblioteki: `python -m pip install -r requirements.txt`.
-3. Uruchom **`uruchom_trening_bilansow.py`** strzałką ▶, wskaż Excel/CSV energii
-   i folder na model. Trening porównuje zestawy pogody i zapisuje modele oraz raporty.
+3. Otwórz **`uruchom_trening_bilansow.py`**, wpisz `SCIEZKA_ENERGII`,
+   `FOLDER_MODELU` i ustawienia w `PARAMETRY`, zapisz plik i kliknij ▶.
+   Pusta ścieżka energii otwiera wybór pliku. Trening porównuje modele i pogodę.
 4. Uruchamiaj **`uruchom_prognoze_bilansow.py`** kilka razy dziennie.
    Program wczytuje zapisany model i nie wykonuje ponownego uczenia.
 
@@ -17,6 +18,12 @@ i uprawnień konta Windows. Kwerenda jest osobnym plikiem wykonywanym przez
 Python/pyodbc. Dostępne jest też użycie eksportu pogody zamiast połączenia z SQL.
 
 **[Pełna instrukcja, format wejścia, parametry i ograniczenia](START_BILANSY_72H.md).**
+
+**[Ustawienia w kodzie, wybór modeli i czytanie statystyk](PARAMETRY_I_RAPORTY.md).**
+Po treningu otwórz `raport_treningu.xlsx`: błędy według oddziałów, godzin, dni,
+horyzontu i warunków pogody, największe pomyłki, porównanie z profilem oraz wykresy.
+`models="auto"` porównuje HistGradientBoosting i opcjonalnie CatBoost; jego instalacja:
+`python -m pip install -r mdd_forecasting/requirements-production.txt`.
 
 ## Dla AI rozwijających projekt
 
@@ -56,11 +63,13 @@ Kontrola nie przelicza automatycznie prognozy po domniemanym odejściu klientów
 ## Testy
 
 ```bash
-python -m unittest tests.test_portfolio tests.test_branch_forecasting tests.test_mdd_forecasting -v
+python -m unittest discover -v
 ```
 
-32 testy sprawdzają m.in. wybór korekt, znak bilansu, cutoff pogody, zmianę czasu,
+Testy sprawdzają m.in. wybór korekt, znak bilansu, cutoff pogody, zmianę czasu,
 zapis i odczyt modeli, prognozę 576 wierszy oraz kontrolę znikających MDD.
+Sprawdzają też konfigurację strzałki, raport Excel, pokrycie oceny każdego oddziału,
+luki godzinowe i opcjonalny CatBoost (ten test wymaga jego instalacji).
 Testy korzystają z danych syntetycznych. Do właściwego treningu i oceny dokładności
 na portfelu PGE potrzebny jest rzeczywisty eksport energii oraz historia pogody.
 

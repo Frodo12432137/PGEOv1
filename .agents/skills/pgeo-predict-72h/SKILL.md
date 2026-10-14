@@ -53,6 +53,9 @@ CSV używa separatora `;`, przecinka dziesiętnego i UTF-8 BOM.
 Rozróżniaj `status` prognozy od `status_portfela`. Brak wymaganej pogody
 pozostawia pustą prognozę i status, nie zero; CLI zwraca wtedy kod 2 i zapisuje
 CSV do diagnozy. Wariant kalendarzowy może działać bez pogody.
+Przy częściowym braku wybranych cech liczba może pozostać dostępna, ale ma status
+`PROGNOZA_NIEPELNA_POGODA`; CLI również kończy się kodem 2, a szczegóły podają
+`brakujace_cechy_pogody`.
 Portfel wymagający sprawdzenia może towarzyszyć liczbowej prognozie.
 Sprawdź `szczegoly_prognozy.csv`, źródło audytu i raporty portfela;
 nie przedstawiaj zaniku pomiarów jako potwierdzenia zakończenia umowy.
