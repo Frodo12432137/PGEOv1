@@ -95,9 +95,9 @@ def train_main(argv=None) -> int:
                                 min_evaluation_targets=args.min_evaluation_targets,
                                 weather_variants=tuple(args.weather_variants), random_state=args.random_state)
     settings.validate()
-    energy, quality, mapping, measurements = load_branch_energy(args.energy, config, return_measurements=True)
-    energy = energy.loc[energy["doba_handlowa"].ge(pd.Timestamp(args.start_date))].copy()
-    measurements = measurements.loc[measurements["doba_handlowa"].ge(pd.Timestamp(args.start_date))].copy()
+    energy, quality, mapping, measurements = load_branch_energy(
+        args.energy, config, return_measurements=True, start_date=args.start_date,
+    )
     if energy.empty:
         raise ValueError("Brak pomiarów po dacie startowej.")
     origin = pd.Timestamp.now(tz="UTC")

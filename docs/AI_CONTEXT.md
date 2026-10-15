@@ -164,3 +164,12 @@ Naprawiono odczyt H, który wcześniej wycinał pierwszą liczbę z dowolnego te
 `SCIEZKA_POGODY` rozpoznaje teraz `.sql` jako zapytanie (na zdjęciu użytkownik
 wpisał tę ścieżkę w miejsce pliku eksportu). Puste ustawienie nadal wybiera
 domyślny SQL, a CSV/XLSX pozostają eksportami pogody.
+
+Następne zdjęcie wskazało 1130 rekordów z komunikatem o nieistniejącej godzinie
+wiosną; przykłady mają prawidłową dobę `2024-03-31` i H=3. To nie potwierdza
+problemu parsera F: do wyjaśnienia pozostaje numeracja godzin energii w dni DST.
+Zapytano użytkownika, czy są to kolejno 1–23/25, czy wcześniejszy wariant
+z dodatkową 02:00 oznaczoną jako 25. Nie zmieniono tej konwencji bez odpowiedzi.
+Naprawiono niezależny błąd zakresu: `start_date` jest stosowane przed walidacją
+i agregacją, a nie po nich. Rozpoznane starsze doby są zliczane jako
+`przed_data_startowa`; nierozpoznane daty nadal wywołują diagnostykę.

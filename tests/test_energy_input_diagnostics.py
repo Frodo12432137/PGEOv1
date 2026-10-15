@@ -9,12 +9,49 @@ import unittest
 
 import pandas as pd
 
-from mdd_forecasting.branch_data import EnergyTimeError, aggregate_branch_energy
+from mdd_forecasting.branch_data import EnergyTimeError, aggregate_branch_energy, load_branch_energy, load_prediction_measurements
 from mdd_forecasting.branch_launcher import configured_launch
+from mdd_forecasting.config import ENERGY_COLUMNS, PipelineConfig
 from tests.test_branch_forecasting import normalized_energy
 
 
 class TestEnergyInputDiagnostics(unittest.TestCase):
+    def test_start_date_excludes_old_rows_before_aggregation_and_reports_count(self):
+        rows = [["BIA", 1, "G", "Stary", "", "2024-03-31", 4, 3, 123],
+                ["BIA", 1, "G", "Aktualny", "", "2024-07-01", 4, 3, 100]]
+        with TemporaryDirectory() as tmp, redirect_stdout(StringIO()):
+            path = Path(tmp) / "energia.csv"
+            pd.DataFrame(rows, columns=ENERGY_COLUMNS).to_csv(path, index=False)
+            hourly, quality, _, measurements = load_branch_energy(
+                path, PipelineConfig(), return_measurements=True, start_date="2024-07-01",
+            )
+            self.assertEqual(hourly.wartosc_rzeczywista.tolist(), [100])
+            self.assertEqual(measurements.klient_nazwa.tolist(), ["Aktualny"])
+            self.assertEqual(quality.loc[quality.kontrola.eq("przed_data_startowa"), "liczba"].iloc[0], 1)
+            with self.assertRaises(EnergyTimeError):
+                load_branch_energy(path, PipelineConfig())
+
+    def test_start_date_keeps_unknown_dates_and_invalid_hours_within_scope(self):
+        for date in ["brak daty", "2025-03-30"]:
+            with self.subTest(date=date), TemporaryDirectory() as tmp, redirect_stdout(StringIO()):
+                path = Path(tmp) / "energia.csv"
+                rows = [["BIA", 1, "G", "Test", "", date, 4, 3, 10]]
+                pd.DataFrame(rows, columns=ENERGY_COLUMNS).to_csv(path, index=False)
+                with self.assertRaises(EnergyTimeError) as raised:
+                    load_branch_energy(path, PipelineConfig(), start_date="2024-07-01")
+                self.assertEqual(raised.exception.records.doba_handlowa_zrodlowa.tolist(), [date])
+
+    def test_prediction_audit_applies_saved_start_date_before_aggregation(self):
+        bundle = {"branches": pd.DataFrame({"oddzial_code": ["BIA"], "punkt": ["Białystok"]}),
+                  "settings": {"timezone": "Europe/Warsaw"}, "input_schema": {"start_date": "2024-07-01"}}
+        rows = [["BIA", 1, "G", "Stary", "", "2024-03-31", 4, 3, 123],
+                ["BIA", 1, "G", "Aktualny", "", "2024-07-01", 4, 3, 100]]
+        with TemporaryDirectory() as tmp, redirect_stdout(StringIO()):
+            path = Path(tmp) / "energia.csv"
+            pd.DataFrame(rows, columns=ENERGY_COLUMNS).to_csv(path, index=False)
+            measurements = load_prediction_measurements(path, bundle)
+        self.assertEqual(measurements.klient_nazwa.tolist(), ["Aktualny"])
+
     def test_bad_time_reports_original_fields_and_specific_reason(self):
         cases = [
             ("brak daty", 1, "nierozpoznana lub pusta data F"),

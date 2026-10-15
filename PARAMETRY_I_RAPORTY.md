@@ -206,6 +206,11 @@ zgodna z treningiem. Aby korzystać z nowego porównywania modeli, wykonaj treni
 
 ## Kontrole danych i granice oceny
 
+`start_date` ogranicza zakres przed walidacją i agregacją pomiarów, także podczas
+audytu predykcji z zapisanego modelu. Wiersze z rozpoznaną dobą starszą od tej
+daty są liczone w `kontrola_energii.csv` jako `przed_data_startowa`.
+Nierozpoznane daty pozostają do sprawdzenia; nie są uznawane za stare rekordy.
+
 Niepoprawna doba/godzina jest zgłaszana z liczbą rekordów i przyczyną:
 nierozpoznana data F, niecałkowite H/zakres poza 1–25, godzina 25 poza jesienną
 zmianą czasu lub nieistniejąca lokalna godzina wiosną. Komunikat zawiera arkusz,

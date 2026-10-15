@@ -54,10 +54,28 @@ def trade_time_utc(dates: pd.Series, hours: pd.Series, timezone: str) -> pd.Seri
     return result
 
 
-def load_branch_energy(path: str | Path, config: PipelineConfig, return_measurements: bool = False):
+def _from_start_date(frame: pd.DataFrame, start_date: object | None):
+    if start_date is None:
+        return frame, 0
+    cutoff = pd.Timestamp(start_date)
+    if pd.isna(cutoff) or cutoff.tzinfo is not None:
+        raise ValueError("start_date musi być poprawną lokalną datą bez strefy czasowej.")
+    # NaT nie potwierdza, że rekord jest poza zakresem: musi trafić do walidacji.
+    keep = frame["doba_handlowa"].isna() | frame["doba_handlowa"].ge(cutoff.normalize())
+    return frame.loc[keep].copy(), int((~keep).sum())
+
+
+def load_branch_energy(path: str | Path, config: PipelineConfig, return_measurements: bool = False,
+                       *, start_date: object | None = None):
     mapping, mapping_table = load_branch_mapping(config.mapping_path)
     raw = read_energy_file(path, sheet_regex=config.sheet_regex)
     normalized, quality = normalize_energy(raw, mapping)
+    normalized, excluded = _from_start_date(normalized, start_date)
+    if start_date is not None:
+        quality = pd.concat([quality, pd.DataFrame([{
+            "kontrola": "przed_data_startowa", "liczba": excluded,
+            "szczegoly": f"poza wybranym zakresem od {start_date}; wyłączone przed walidacją i agregacją",
+        }])], ignore_index=True)
     hourly, extra, measurements = aggregate_branch_energy(
         normalized, config.timezone, return_measurements=True, mapping_path=config.mapping_path,
     )
@@ -73,10 +91,9 @@ def load_prediction_measurements(path: str | Path, bundle: dict) -> pd.DataFrame
             mapping[_ascii_token(alias)] = mapping[_ascii_token(canonical)]
     raw = read_energy_file(path, sheet_regex=bundle.get("input_schema", {}).get("sheet_regex", PipelineConfig().sheet_regex))
     normalized, _ = normalize_energy(raw, mapping)
-    _, _, measurements = aggregate_branch_energy(normalized, bundle["settings"]["timezone"], return_measurements=True)
     start = bundle.get("input_schema", {}).get("start_date")
-    if start:
-        measurements = measurements.loc[measurements["doba_handlowa"].ge(pd.Timestamp(start))].copy()
+    normalized, _ = _from_start_date(normalized, start)
+    _, _, measurements = aggregate_branch_energy(normalized, bundle["settings"]["timezone"], return_measurements=True)
     return measurements
 
 
