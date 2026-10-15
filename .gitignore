@@ -14,6 +14,16 @@ venv/
 /wyniki/
 /prognozy/
 /model_bilansu/
+/backtest_bilansu/
+ustawienia_backtestu.json
+status_backtestu.json
+zakres_backtestu.json
+gotowy_model.json
+proby_strojenia.json
+OSTATNI_BACKTEST.txt
+podsumowanie_backtestu.txt
+raport_backtestu.html
+.backtest.lock
 *.joblib
 *.pkl
 *.pickle

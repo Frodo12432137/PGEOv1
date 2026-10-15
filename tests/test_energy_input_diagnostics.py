@@ -122,7 +122,7 @@ class TestEnergyInputDiagnostics(unittest.TestCase):
             self.assertEqual(args[args.index("--weather") + 1], str(weather))
             self.assertNotIn("--weather-sql", args)
 
-    def test_launcher_writes_all_bad_time_records_to_artifact_directory(self):
+    def test_launcher_keeps_error_log_without_old_hour_diagnostic_export(self):
         rows = [["BIA", 1, "G", f"Test {n}", "", "zła data", 4, 1, 10] for n in range(8)]
         with redirect_stdout(StringIO()):
             frame = normalized_energy(rows)
@@ -137,11 +137,7 @@ class TestEnergyInputDiagnostics(unittest.TestCase):
             with patch("mdd_forecasting.branch_cli.train_main", side_effect=error), redirect_stdout(StringIO()):
                 with self.assertRaises(EnergyTimeError):
                     configured_launch(True, str(energy), str(artifacts))
-            report = pd.read_csv(artifacts / "bledne_daty_godziny.csv", sep=";")
-            self.assertEqual(len(report), 8)
-            self.assertEqual(report.source_row.tolist(), list(range(2, 10)))
-            self.assertTrue(report.doba_handlowa_zrodlowa.eq("zła data").all())
-            self.assertTrue(report.powod_bledu_czasu.eq("nierozpoznana lub pusta data F").all())
+            self.assertFalse((artifacts / "bledne_daty_godziny.csv").exists())
             self.assertIn("EnergyTimeError", (artifacts / "blad_bilansow.txt").read_text(encoding="utf-8"))
 
 

@@ -243,16 +243,15 @@ Niepoprawna doba/godzina jest zgłaszana z liczbą rekordów i przyczyną:
 nierozpoznana data F, niecałkowite H/zakres poza 1–25, godzina 25 poza jesienną
 zmianą czasu lub nieistniejąca lokalna godzina wiosną. Komunikat zawiera arkusz,
 numer wiersza oraz `doba_handlowa_zrodlowa` i `godzina_handlowa_zrodlowa`.
-Przy uruchomieniu skryptem VS Code pełna lista problematycznych rekordów trafia
-do `FOLDER_MODELU/bledne_daty_godziny.csv`, obok logu `blad_bilansow.txt`.
+Przy uruchomieniu skryptem VS Code błąd jest zapisany w `blad_bilansow.txt`.
 Godziny są czytane jako liczby, bez wycinania pierwszej cyfry z dowolnego tekstu.
 Błąd nie powoduje automatycznego usunięcia pomiaru ani przesunięcia godziny.
 
-Gdy nie wiadomo, jak eksport numeruje godziny przy zmianie czasu, uruchom
-`uruchom_diagnostyke_godzin.py` przez ▶. Puste ustawienia przejmują ścieżkę
-energii i folder modelu z konfiguracji treningu. Raport całego eksportu powstaje
-w `FOLDER_MODELU/diagnostyka_godzin/podsumowanie_godzin.txt`; sam audyt
-nie wymaga SQL i nie zmienia numeracji. [Szczegóły diagnostyki](DIAGNOSTYKA_GODZIN.md).
+Samodzielny audyt godzin i jego dodatkowe eksporty zostały usunięte.
+Obejście pomijające całe doby 23/25 h oraz podstawowa walidacja wejścia pozostają.
+Nowy [backtest](BACKTEST.md) przejmuje parametry treningu, udostępnia osobne
+daty, limit czasu, wznowienie oraz raport HTML/Excel z wykresami i oceną
+na późniejszym okresie, który nigdy nie trafia do uczenia.
 
 Kierunek energii wyznacza tylko kolumna B: `1` czynne pobranie, `-1` czynne oddanie.
 Opis E nie jest używany do klasyfikacji, filtrowania ani zastępowania brakującego B.

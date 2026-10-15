@@ -36,6 +36,19 @@ Opcje sprawdź przez `python -m mdd_forecasting.train --help`.
 CatBoost; `--skip-importance` pomija
 obliczanie ważności. Dobierz koszt obliczeń do zadania użytkownika.
 
+Osobny zewnętrzny backtest uruchamia `python uruchom_backtest_bilansow.py`
+lub strzałka VS Code. Przeczytaj [BACKTEST.md](../../../BACKTEST.md).
+Przejmuje parametry produkcyjnego launchera, ma osobne daty i limit całego
+procesu. Trenuje ten sam model raz na wcześniejszej historii, potem symuluje
+origins bez kolejnych fitów. BACKTEST_OD/DO to daty uruchomień, a cele sięgają
+o pełny horyzont dalej. Nie przenoś realizacji zewnętrznego testu do uczenia,
+profilu ani oceny portfela treningowego. Sprawdź `tests.test_backtest`.
+Raport główny HTML/Excel ocenia wyłącznie ten późniejszy zakres, wewnętrzne
+strojenie i ważność są osobno w `trening/`. Najpierw sprawdź końcowy
+`status_backtestu.json`: limit 124 oznacza niekompletny wynik, nawet gdy
+wcześniej zapisano raport częściowy. Nie obiecuj czasu ani dokładności bez
+rzeczywistych danych i pomiaru na komputerze użytkownika.
+
 ## Zachowaj poprawną ocenę
 
 `branch_model.py` uczy dwa modele HistGradientBoosting lub CatBoost, po jednym

@@ -34,7 +34,6 @@ def configured_launch(training: bool, energy: str = "", artifacts_dir: str = "mo
     """Ścieżki ustawione w kodzie omijają GUI; względne są względem repo, nie cwd VS Code."""
     from .branch_database import DEFAULT_BRANCH_SQL
     from .branch_cli import train_main, predict_main
-    from .branch_data import EnergyTimeError
     energy = str(energy).strip()
     artifacts_dir = str(artifacts_dir).strip()
     weather_file = str(weather_file).strip()
@@ -80,10 +79,6 @@ def configured_launch(training: bool, energy: str = "", artifacts_dir: str = "mo
     except Exception as exc:
         log_dir = Path(_path(artifacts_dir or "model_bilansu"))
         log_dir.mkdir(parents=True, exist_ok=True)
-        if isinstance(exc, EnergyTimeError):
-            report = log_dir / "bledne_daty_godziny.csv"
-            exc.records.to_csv(report, sep=";", decimal=",", index=False, encoding="utf-8-sig")
-            print(f"Rekordy z niepoprawną datą/godziną: {report}", flush=True)
         log = log_dir / "blad_bilansow.txt"
         log.write_text(traceback.format_exc(), encoding="utf-8")
         print(f"Błąd. Szczegóły zapisano w {log}", flush=True)

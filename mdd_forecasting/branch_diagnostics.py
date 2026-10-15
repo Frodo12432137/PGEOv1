@@ -133,7 +133,8 @@ READ_ME = [
 ]
 
 
-def write_training_workbook(bundle: dict, reports: dict[str, pd.DataFrame], destination: str | Path):
+def write_training_workbook(bundle: dict, reports: dict[str, pd.DataFrame], destination: str | Path,
+                            *, read_me=None):
     from openpyxl import Workbook
     from openpyxl.chart import BarChart, LineChart, Reference
     from openpyxl.styles import Font, PatternFill, Alignment
@@ -182,7 +183,7 @@ def write_training_workbook(bundle: dict, reports: dict[str, pd.DataFrame], dest
                     cells[0].number_format = number_format
         return sheet
 
-    intro = add_sheet("Czytaj_najpierw", pd.DataFrame(READ_ME, columns=["temat", "wyjasnienie"]))
+    intro = add_sheet("Czytaj_najpierw", pd.DataFrame(READ_ME if read_me is None else read_me, columns=["temat", "wyjasnienie"]))
     intro.column_dimensions["A"].width = 29
     intro.column_dimensions["B"].width = 115
     for row in intro.iter_rows(min_row=2):
@@ -205,6 +206,7 @@ def write_training_workbook(bundle: dict, reports: dict[str, pd.DataFrame], dest
         "kontrola_modelu": "Kontrola_modelu", "kontrola_energii": "Kontrola_energii",
         "pominiete_dni_zmiany_czasu": "Pominiete_doby",
         "podsumowanie_portfela": "Portfel", "backtest_bilans": "Backtest_bilans",
+        "zakres_backtestu": "Zakres_backtestu", "pokrycie_backtestu": "Pokrycie_backtestu",
     }
     for key, name in sheets.items():
         if key in reports:
@@ -235,6 +237,25 @@ def write_training_workbook(bundle: dict, reports: dict[str, pd.DataFrame], dest
         chart.set_categories(Reference(hourly_sheet, min_col=1, min_row=2, max_row=len(hourly) + 1))
         chart.width, chart.height = 25, 12
         hourly_sheet.add_chart(chart, "L2")
+    if "przebieg_ciagly" in reports:
+        for number, (branch, frame) in enumerate(reports["przebieg_ciagly"].groupby("oddzial_code"), 1):
+            columns = [f"{channel}_{value}" for channel in ["bilans", "pobranie", "oddanie"]
+                       for value in ["wartosc_rzeczywista", "wartosc_przewidywana", "wartosc_bazowa"]]
+            timeline = frame.sort_values("target_time_utc")[["target_time_utc", *columns]].head(5000).copy()
+            timeline["target_time_utc"] = timeline.target_time_utc.dt.tz_convert(bundle["settings"]["timezone"]).astype(str)
+            sheet = add_sheet(f"Przebieg_{number}_{branch}", timeline)
+            for channel_number, channel in enumerate(["bilans", "pobranie", "oddanie"]):
+                chart = LineChart()
+                chart.title = f"{branch}: {channel} — realizacja, ML, profil"
+                chart.y_axis.title = "Jednostka źródłowa energii"
+                chart.x_axis.title = "Czas lokalny; najnowszy origin dla celu"
+                start_column = 2 + channel_number * 3
+                chart.add_data(Reference(sheet, min_col=start_column, max_col=start_column + 2,
+                                         min_row=1, max_row=len(timeline) + 1), titles_from_data=True)
+                chart.set_categories(Reference(sheet, min_col=1, min_row=2, max_row=len(timeline) + 1))
+                chart.width, chart.height = 28, 13
+                chart.display_blanks = "gap"
+                sheet.add_chart(chart, f"L{2 + channel_number * 27}")
     path = Path(destination)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp.xlsx")

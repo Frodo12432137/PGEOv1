@@ -157,8 +157,7 @@ przykładów F. Bez tych danych nie zmieniano interpretacji dat ani konwencji DS
 W próbie syntetycznej domyślny `pd.to_datetime` błędnie odczytał `01.07.2024`
 jako 7 stycznia i odrzucił `15.07.2024`; mieszane ISO z czasem/bez także dały NaT.
 Trzeba porównać te przypadki z rzeczywistymi F przed wyborem reguły parsera.
-Dodano oryginalne F/H do diagnostyki i raport `bledne_daty_godziny.csv`
-w folderze artefaktów przy uruchomieniu przez launcher. Powody odróżniają brak
+Zachowano oryginalne F/H w podstawowej walidacji danych. Powody odróżniają brak
 daty, niecałkowite/niepoprawne H i nieistniejące godziny zmiany czasu.
 Naprawiono odczyt H, który wcześniej wycinał pierwszą liczbę z dowolnego tekstu.
 `SCIEZKA_POGODY` rozpoznaje teraz `.sql` jako zapytanie (na zdjęciu użytkownik
@@ -174,18 +173,9 @@ Naprawiono niezależny błąd zakresu: `start_date` jest stosowane przed walidac
 i agregacją, a nie po nich. Rozpoznane starsze doby są zliczane jako
 `przed_data_startowa`; nierozpoznane daty nadal wywołują diagnostykę.
 
-Następnie użytkownik wycofał pewność co do numeracji kolejnych rzeczywistych
-godzin: „znaczy nie wiem wsm, zrób diagnostykę tego to się dowiemy”.
+Użytkownik wycofał pewność co do numeracji kolejnych rzeczywistych godzin.
+Przeprowadzony wtedy osobny audyt został później usunięty na jego prośbę.
 Nie traktuj wcześniejszego „tak” jako potwierdzonego kontraktu DST.
-Dodano [diagnostykę godzin](../DIAGNOSTYKA_GODZIN.md) i skrypt
-`uruchom_diagnostyke_godzin.py`, przejmujący ścieżki z lokalnego launchera
-treningu. Audyt bada cały eksport bez `start_date`, SQL, wyboru korekt i uczenia.
-Porównuje wiosenne wzorce 1–23 oraz 1,2,4…24 osobno dla doby/oddziału/MDD/B/G.
-Jesienne 1–25 nie rozstrzyga znaczenia H25; potrzebny może być opis eksportu
-lub niezależny znacznik UTC. Zera nie są automatycznie technicznymi wypełnieniami.
-Skrypt zapisuje podsumowanie bez nazw MDD oraz lokalne szczegółowe CSV.
-Przeliczanie czasu treningu, predykcji i pogody pozostaje bez zmian do analizy
-rzeczywistego raportu. W chmurze nadal nie ma rzeczywistego pliku energii PGE.
 
 Aktualna decyzja użytkownika, 15 października 2026: na razie wyłączyć całe
 doby zmiany czasu, zarówno krótsze, jak i dłuższe, i zachować modelowanie.
@@ -207,3 +197,27 @@ a starsze modele bez pola zachowują wcześniejszą obsługę. Prognoza nadal li
 72 rzeczywiste godziny. Wykluczone cele nie biorą udziału w treningu, walidacji
 ani teście; jakość w tych dobach nie jest oceniona. Nie zmieniono algorytmów,
 parametrów CatBoost, mapowania zwykłych godzin ani pogody i cutoffu origin.
+
+Kolejna decyzja 15 października 2026: usunąć osobną diagnostykę godzin i dodać
+backtest tego samego modelu do pokazania wyników na spotkaniu. Wyłączenie całych
+dób DST pozostaje. Usunięto skrypt i moduł audytu oraz dodatkowy eksport
+niepoprawnych godzin; podstawowe walidacje i log błędu pozostają.
+
+`uruchom_backtest_bilansow.py` przejmuje ścieżki, SQL i pełne parametry
+`uruchom_trening_bilansow.py`. Cztery lokalne daty wybierają wcześniejszą
+historię treningową i późniejsze uruchomienia prognozy. Model trenuje raz
+przez produkcyjne train_branch_models(), a potem używa predict_branches()
+bez dalszego uczenia. Każdy origin przewiduje pełny horyzont, domyślnie 72 h.
+Dane zewnętrznego testu nie wpływają na fit(), profil, strojenie ani portfel
+treningowy. Obowiązuje embargo od końca doby TRENING_DO.
+
+Wyniki powstają lokalnie w osobnym podfolderze backtest_bilansu: raport HTML
+bez Internetu, Excel z wykresami i błędami, pełne CSV i status. Wewnętrzna
+ocena i ważność pogody są w trening/, odrębnie od zewnętrznej oceny. Braki
+realizacji nie są zerami; cele DST zostają w prognozach, ale poza oceną.
+Limit procesu to domyślnie 10 godzin, z cache gotowych prób i modelu. To limit,
+nie gwarancja zakończenia treningu; status LIMIT_CZASU / kod 124 jest niekompletny.
+Wznowienie SQL używa tego samego snapshotu pogody; resume=False pobiera nowy.
+Źródła, ustawienia, kod i wersje bibliotek identyfikują cache pełnymi skrótami.
+Instrukcja: [BACKTEST.md](../BACKTEST.md). Brak danych PGE/SQL w chmurze;
+syntetyczne wyniki testów programu nie stanowią oceny dokładności biznesowej.

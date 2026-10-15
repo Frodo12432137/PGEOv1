@@ -19,7 +19,7 @@ BRANCHES = ("BIA", "LUB", "RZE", "SKO", "WAW", "ZAM", "ZEUD", "ZEUE")
 
 
 class EnergyTimeError(ValueError):
-    """Walidacja czasu z rekordami do lokalnego raportu w launcherze."""
+    """Błąd podstawowej walidacji czasu z przykładami rekordów źródłowych."""
 
     def __init__(self, message: str, records: pd.DataFrame):
         super().__init__(message)
@@ -93,12 +93,23 @@ def _empty_dst_report():
 
 def load_branch_energy(path: str | Path, config: PipelineConfig, return_measurements: bool = False,
                        *, start_date: object | None = None, exclude_dst_days: bool = False,
-                       return_excluded_days: bool = False):
+                       return_excluded_days: bool = False, end_date: object | None = None):
     """Opcjonalny raport wyłączonych dób jest ostatnim elementem wyniku."""
     mapping, mapping_table = load_branch_mapping(config.mapping_path)
     raw = read_energy_file(path, sheet_regex=config.sheet_regex)
     normalized, quality = normalize_energy(raw, mapping)
     normalized, excluded = _from_start_date(normalized, start_date)
+    if end_date is not None:
+        cutoff = pd.Timestamp(end_date)
+        if pd.isna(cutoff) or cutoff.tzinfo is not None:
+            raise ValueError("end_date musi być poprawną lokalną datą bez strefy czasowej.")
+        keep = normalized.doba_handlowa.isna() | normalized.doba_handlowa.le(cutoff.normalize())
+        count = int((~keep).sum())
+        normalized = normalized.loc[keep].copy()
+        quality = pd.concat([quality, pd.DataFrame([{
+            "kontrola": "po_dacie_koncowej", "liczba": count,
+            "szczegoly": f"poza zakresem do {cutoff.date()}; wyłączone przed walidacją i agregacją",
+        }])], ignore_index=True)
     if start_date is not None:
         quality = pd.concat([quality, pd.DataFrame([{
             "kontrola": "przed_data_startowa", "liczba": excluded,

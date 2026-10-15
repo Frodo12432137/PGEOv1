@@ -30,9 +30,11 @@ horyzontu i warunków pogody, największe pomyłki, porównanie z profilem oraz 
 `models="auto"` porównuje HistGradientBoosting i opcjonalnie CatBoost; jego instalacja:
 `python -m pip install -r mdd_forecasting/requirements-production.txt`.
 
-Przy błędzie godzin uruchom **`uruchom_diagnostyke_godzin.py`** strzałką ▶.
-Skrypt pobierze ścieżkę energii z konfiguracji treningu i porówna numerację w
-dniach zmiany czasu, bez SQL i uczenia. [Uruchomienie i raporty](DIAGNOSTYKA_GODZIN.md).
+Backtest: otwórz **`uruchom_backtest_bilansow.py`**, ustaw daty treningu i testu,
+kliknij ▶. Ten sam model, osobny późniejszy okres oceny, limit czasu i wznowienie.
+Wyniki: interaktywny `raport_backtestu.html`, Excel z wykresami i pełne CSV.
+**[Instrukcja krok po kroku](BACKTEST.md).** Całe doby zmiany czasu pozostają
+domyślnie wyłączone; dawny osobny audyt godzin został usunięty.
 
 ## Dla AI rozwijających projekt
 

@@ -1,10 +1,11 @@
 """Uczenie zapisanych modeli oddziałów i szybka predykcja bez fit()."""
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, fields
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+import hashlib
 import platform
 from importlib.util import find_spec
 from time import perf_counter
@@ -83,6 +84,24 @@ class TrainingSettings:
             raise ValueError("Regularyzacja musi być nieujemna i skończona.")
         if self.importance_rows < 0 or not self.weather_variants or set(self.weather_variants) - set(VARIANTS):
             raise ValueError("Niepoprawna próbka ważności albo lista wariantów pogody.")
+
+
+def settings_from_options(options: dict) -> TrainingSettings:
+    """Te same ustawienia co launcher produkcyjny, bez drugiej implementacji modelu."""
+    values = dict(options)
+    if "models" in values:
+        values["model_backend"] = values.pop("models")
+    if values.pop("skip_importance", False):
+        values["importance_rows"] = 0
+    if "weather_variants" in values:
+        values["weather_variants"] = tuple(values["weather_variants"])
+    names = {field.name for field in fields(TrainingSettings)}
+    extra = set(values) - names - {"start_date", "include_dst_days", "sheet_regex", "portfolio_grace_days"}
+    if extra:
+        raise ValueError(f"Nieznane parametry modelu: {sorted(extra)}")
+    result = TrainingSettings(**{key: value for key, value in values.items() if key in names})
+    result.validate()
+    return result
 
 
 def feature_frame(frame: pd.DataFrame, branch_codes: list[str], timezone_name: str) -> pd.DataFrame:
@@ -252,7 +271,8 @@ def _cap(frame: pd.DataFrame, maximum: int) -> pd.DataFrame:
     return frame.sort_values(["target_time_utc", "forecast_origin_utc"]).tail(maximum)
 
 
-def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: TrainingSettings):
+def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: TrainingSettings,
+                        *, trial_cache: dict | None = None, progress=None):
     settings.validate()
     if energy.empty:
         raise ValueError("Brak danych energii po filtrze dat.")
@@ -277,6 +297,12 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
     # Dostępność cech ustalamy wyłącznie na początkowej części historii.
     available = set(features.columns[features.loc[train.index].notna().any()])
     grid = candidate_parameters(settings)
+    def notify(stage, **data):
+        if progress is not None:
+            progress({"etap": stage, **data})
+
+    notify("PRZYGOTOWANIE_UCZENIA", maks_prob=len(DIRECTIONS) * len(grid) * len(settings.weather_variants),
+           wiersze=len(data))
     chosen = {}
     comparisons, importance_rows, coverage_rows = [], [], []
     test_predictions = test.copy()
@@ -307,16 +333,33 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
             used_specs.add(tuple(cols))
             for parameters in grid:
                 started = perf_counter()
-                print(f"{direction}: {parameters['backend']}, pogoda={variant}, parametry={parameters}", flush=True)
-                model = _new_model(settings, parameters)
-                model.fit(features.loc[fit_rows.index, cols], fit_rows["wartosc_rzeczywista"])
-                prediction = _predict(model, features.loc[val.index], cols)
-                score = _macro_error(val, prediction, scales)
-                comparisons.append({"kierunek": direction, "wariant": variant, **parameters,
-                                    "walidacja_macro_mae_norm": score,
-                                    "walidacja_mae": float(np.abs(prediction - val["wartosc_rzeczywista"].to_numpy()).mean()),
-                                    "liczba_cech": len(cols), "liczba_wierszy": len(val),
-                                    "czas_s": perf_counter() - started})
+                cache_key = hashlib.sha256(json.dumps([direction, variant, cols, parameters], sort_keys=True).encode()).hexdigest()
+                cached = trial_cache.get(cache_key) if trial_cache is not None else None
+                notify("STROJENIE", kierunek=direction, wariant=variant, parametry=parameters,
+                       gotowe_proby=len(comparisons), z_cache=cached is not None)
+                if cached is not None:
+                    record = dict(cached)
+                    if record["liczba_cech"] != len(cols) or record["liczba_wierszy"] != len(val):
+                        raise ValueError("Cache strojenia nie pasuje do danych. Uruchom backtest bez wznowienia.")
+                    score = float(record["walidacja_macro_mae_norm"])
+                    if not np.isfinite(score):
+                        raise ValueError("Niepoprawny wynik w cache strojenia. Uruchom backtest bez wznowienia.")
+                    print(f"{direction}: wznawiam gotowy wynik {parameters['backend']} / {variant}", flush=True)
+                else:
+                    print(f"{direction}: {parameters['backend']}, pogoda={variant}, parametry={parameters}", flush=True)
+                    model = _new_model(settings, parameters)
+                    model.fit(features.loc[fit_rows.index, cols], fit_rows["wartosc_rzeczywista"])
+                    prediction = _predict(model, features.loc[val.index], cols)
+                    score = _macro_error(val, prediction, scales)
+                    record = {"kierunek": direction, "wariant": variant, **parameters,
+                              "walidacja_macro_mae_norm": score,
+                              "walidacja_mae": float(np.abs(prediction - val["wartosc_rzeczywista"].to_numpy()).mean()),
+                              "liczba_cech": len(cols), "liczba_wierszy": len(val),
+                              "czas_s": perf_counter() - started}
+                    if trial_cache is not None:
+                        trial_cache[cache_key] = dict(record)
+                comparisons.append(record)
+                notify("PROBA_GOTOWA", gotowe_proby=len(comparisons), wynik=record, z_cache=cached is not None)
                 if score < best_score:
                     best_score = score
                     chosen[direction] = {"wariant": variant, "columns": cols, "parameters": parameters}
@@ -327,6 +370,7 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
                                & data["kierunek_energii_norm"].eq(direction)]
         before_test = _cap(before_test, settings.max_train_rows)
         model = _new_model(settings, choice["parameters"])
+        notify("OCENA_WEWNETRZNA", kierunek=direction)
         model.fit(features.loc[before_test.index, choice["columns"]], before_test["wartosc_rzeczywista"])
         test_predictions.loc[heldout.index, "wartosc_przewidywana"] = _predict(model, features.loc[heldout.index], choice["columns"])
         test_predictions.loc[heldout.index, "wartosc_bazowa"] = profile_predictions(heldout, _profile(before_test, settings.timezone), settings.timezone)
@@ -355,6 +399,7 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
         # Końcowy model zapisujemy dopiero po zamknięciu oceny holdout.
         final_rows = _cap(data.loc[data["kierunek_energii_norm"].eq(direction)], settings.max_train_rows)
         final_model = _new_model(settings, choice["parameters"])
+        notify("KONCOWE_UCZENIE", kierunek=direction, wiersze=len(final_rows))
         final_model.fit(features.loc[final_rows.index, choice["columns"]], final_rows["wartosc_rzeczywista"])
         choice["model"] = final_model
     direction_metrics = []

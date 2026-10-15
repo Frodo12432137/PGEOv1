@@ -68,8 +68,8 @@ python -m unittest tests.test_portfolio tests.test_branch_forecasting tests.test
 python -m unittest tests.test_branch_training_tools -v
 python -m unittest tests.test_branch_mapping -v
 python -m unittest tests.test_energy_input_diagnostics -v
-python -m unittest tests.test_energy_hour_audit -v
 python -m unittest tests.test_dst_day_exclusion -v
+python -m unittest tests.test_backtest -v
 ```
 
 Uruchamiaj sprawdzenia odpowiednie do zmiany. Same opisy i skille wymagają
