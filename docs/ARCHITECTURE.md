@@ -87,7 +87,7 @@ Kod 0 nie jest potwierdzeniem aktualnych umów ani dokładności prognozy.
 | [`test_branch_forecasting.py`](../tests/test_branch_forecasting.py) | korekty, sumy, pogoda as-of, DST, uczenie/zapis/odczyt i predykcja bez fit |
 | [`test_portfolio.py`](../tests/test_portfolio.py) | przerwy, powroty, zera, podmiana MDD przy tej samej liczbie i statusy |
 | [`test_mdd_forecasting.py`](../tests/test_mdd_forecasting.py) | współdzielone elementy i starszy przepływ |
-| [`test_branch_training_tools.py`](../tests/test_branch_training_tools.py) | konfiguracja ścieżek, luki i energia bierna, pokrycie testu, statystyki/Excel, częściowa pogoda i opcjonalny CatBoost |
+| [`test_branch_training_tools.py`](../tests/test_branch_training_tools.py) | konfiguracja ścieżek, luki, kierunek wyłącznie z B mimo opisów E, pokrycie testu, statystyki/Excel, częściowa pogoda i opcjonalny CatBoost |
 | [`test_branch_mapping.py`](../tests/test_branch_mapping.py) | kodowania i separatory CSV, walidacja mapowania, ścieżki, aliasy Łodzi i audyt z zapisanym mapowaniem |
 
 Przykłady poleceń są w instrukcji i skillach. Aktualny zestaw opcji sprawdzisz przez

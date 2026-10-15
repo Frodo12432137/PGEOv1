@@ -21,10 +21,15 @@ from tests.test_branch_forecasting import demo_data, normalized_energy
 
 
 class TestAdditionalEnergyChecks(unittest.TestCase):
-    def test_reactive_energy_grammatical_forms_are_rejected(self):
-        for label, sign in [("energia bierna pobrana", 1), ("energia bierna oddana", -1), ("bierne pobranie", 1)]:
-            with self.subTest(label=label), self.assertRaisesRegex(ValueError, "biernej"):
-                aggregate_branch_energy(normalized_energy([["BIA", sign, "G", "K1", label, "2025-01-01", 4, 1, 10]]))
+    def test_descriptions_of_reactive_energy_do_not_override_column_b(self):
+        for label, sign, expected in [("energia bierna pobrana", 1, "POBRANIE"),
+                                      ("energia bierna oddana", -1, "ODDANIE"),
+                                      ("bierne pobranie", -1, "ODDANIE")]:
+            with self.subTest(label=label):
+                hourly, _ = aggregate_branch_energy(normalized_energy([
+                    ["BIA", sign, "G", "K1", label, "2025-01-01", 4, 1, 10],
+                ]))
+                self.assertEqual(hourly.kierunek_energii_norm.tolist(), [expected])
 
     def test_absent_record_within_day_invalidates_partial_total(self):
         rows = [["BIA", 1, "G", client, "czynne pobranie", "2025-01-01", 4, hour, value]
@@ -146,7 +151,9 @@ class TestTrainingTools(unittest.TestCase):
             directory = Path(tmp)
             energy = directory / "energia.xlsx"
             weather = directory / "pogoda.csv"
-            self.raw.to_excel(energy, index=False, sheet_name="dane_po_transpozycji")
+            raw = self.raw.copy()
+            raw["kierunek_energii"] = "energia bierna (opis ignorowany; kierunek określa B)"
+            raw.to_excel(energy, index=False, sheet_name="dane_po_transpozycji")
             self.weather_raw.to_csv(weather, index=False)
             options = {"max_iter": 3, "validation_days": 4, "test_days": 4, "label_delay_hours": 24,
                        "weather_variants": ["temperatura_slonce"], "importance_rows": 0, "threads": 2}

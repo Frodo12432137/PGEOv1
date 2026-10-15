@@ -20,6 +20,8 @@ ENERGY_COLUMNS = [
     "wartosc_rzeczywista",
 ]
 
+ENERGY_DIRECTIONS = {1: "POBRANIE", -1: "ODDANIE"}
+
 
 WEATHER_ALIASES = {
     "weather_exec_id": ["execid"],

@@ -58,10 +58,10 @@ Kolumny A:I są odczytywane w kolejności:
 | Kolumna | Znaczenie |
 |---|---|
 | A | nazwa oddziału MDM |
-| B | kierunek energii MDM: 1 pobranie, -1 oddanie |
+| B | jedyne źródło kierunku: 1 czynne pobranie, -1 czynne oddanie |
 | C | grupa OSD MDM |
 | D | nazwa MDD |
-| E | kierunek energii MDD, np. czynne pobranie/czynne oddanie |
+| E | opis źródłowy MDD; nie określa kierunku ani nie filtruje pomiarów |
 | F | doba handlowa |
 | G | rodzaj danych |
 | H | godzina handlowa |
@@ -79,9 +79,16 @@ przerywają uruchomienie i wymagają wyjaśnienia eksportu.
 Jeżeli pomiar MDD nie ma wartości, suma jego oddziału w tej godzinie pozostaje
 brakiem. Kierunek oddania bez pomiarów nie jest automatycznie uznawany za zero.
 
-Kolumna E rozpoznaje kierunek, B służy jako fallback oraz kontrola zgodności.
-Sprzeczne kierunki, energia bierna, ujemne wartości i nieznane oddziały są
-zgłaszane jako błędy. Puste A nie jest uzupełniane poprzednim oddziałem.
+Zgodnie z potwierdzeniem użytkownika 15 października 2026 kierunek ustala
+wyłącznie kolumna B: dokładnie `1` to czynne pobranie, a `-1` czynne oddanie.
+Opisy E, także zawierające słowo „bierna”, puste lub sprzeczne z B, nie wpływają
+na kierunek ani dopuszczenie pomiaru. Program nie wykorzystuje E jako fallbacku.
+Inne lub brakujące wartości B zatrzymują import z liczbą problemów i przykładami
+rekordów, w tym arkuszem, numerem wiersza i oryginalnym kodem B.
+Różne opisy E nie tworzą osobnych pomiarów: te same najlepsze wersje o równej
+wartości są deduplikowane, a sprzeczne wartości są zgłaszane z przykładami.
+Ujemne wartości i nieznane oddziały pozostają błędami.
+Puste A nie jest uzupełniane poprzednim oddziałem.
 
 Mapowanie można edytować w `mdd_forecasting/config/oddzial_miasto.csv`:
 

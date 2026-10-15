@@ -54,10 +54,10 @@ Kolumny A:I są czytane pozycyjnie, ponieważ na zdjęciach A i D mają ten sam 
 | Excel | Nazwa w modelu | Rola |
 |---|---|---|
 | A | `oddzial_code` | mapowanie do punktu pogodowego |
-| B | `kierunek_code` | kontrola jakości `1/-1`; nie jest głównym kierunkiem |
+| B | `kierunek_code` | jedyne źródło kierunku: `1` czynne pobranie, `-1` czynne oddanie |
 | C | `grupa` | cecha kategoryczna |
 | D | `klient_nazwa` | identyfikator szeregu/cecha kategoryczna |
-| E | `kierunek_energii` | źródło prawdy: pobranie albo oddanie |
+| E | `kierunek_energii` | zachowany opis źródłowy; nie wyznacza kierunku ani nie filtruje rekordów |
 | F | `doba_handlowa` | data |
 | G | `rodzaj` | cecha kategoryczna |
 | H | `godzina_handlowa` | godzina 1–24/25 |

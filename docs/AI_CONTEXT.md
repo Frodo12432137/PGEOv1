@@ -25,10 +25,10 @@ Układ A:I pochodzi z opisu użytkownika i zdjęć eksportu:
 | Kolumna | Znaczenie i zastosowanie |
 |---|---|
 | A | oddział MDM; przypisanie bilansu i punktu pogody |
-| B | kierunek MDM: `1` pobranie, `-1` oddanie; kontrola/fallback dla E |
+| B | jedyne źródło kierunku energii czynnej: `1` pobranie, `-1` oddanie |
 | C | grupa OSD MDM; informacja źródłowa, nie klucz ośmiu oddziałów |
 | D | nazwa MDD; identyfikator serii, czasem agregatu klientów |
-| E | kierunek MDD; energia czynna pobrana lub oddana |
+| E | opis źródłowy MDD; nie wpływa na kierunek ani filtrowanie |
 | F | doba handlowa, data |
 | G | rodzaj danych/korekta; preferencja `4 > 3 > 2 > 1 > 0` |
 | H | godzina handlowa |
@@ -140,3 +140,13 @@ wspólnej obsługi CSV (UTF-8, Windows-1250, UTF-16 z BOM; przecinek/średnik/ta
 waliduje statusy, nagłówki i aktywne wpisy, pokazuje pełną ścieżkę pliku.
 `SCIEZKA_MAPOWANIA` w launcherze treningu pozwala wybrać własny CSV.
 Algorytm prognozy i kryteria doboru modeli pozostają te same.
+
+Uzupełnienie 15 października 2026: po komunikacie o energii biernej użytkownik
+potwierdził, że kierunek ma wynikać wyłącznie z B: `1` czynne pobranie,
+`-1` czynne oddanie. Zastąpiono wcześniejsze pierwszeństwo E i fallback B.
+Treść E pozostaje opisem i nie blokuje importu. Inne/brakujące kody B są błędem
+z przykładami rekordów; oryginalny kod zachowuje `kierunek_code_zrodlowy`.
+Korekty i duplikaty nadal rozróżnia klucz oddział/MDD/kierunek B/godzina UTC.
+Sprzecznych wartości najlepszej korekty nie sumujemy; błąd pokazuje rekordy.
+Po zmianie znaczenia kierunku należy ponowić trening. Nie zmieniano algorytmów
+uczenia ani parametrów CatBoost.

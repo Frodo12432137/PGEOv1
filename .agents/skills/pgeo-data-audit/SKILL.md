@@ -22,7 +22,10 @@ Jeden pomiar to oddział/MDD/kierunek/godzina UTC. Wybierz najwyższą korektę
 4 > 3 > 2 > 1 > 0 przed agregacją. Równe duplikaty usuń; różne najlepsze
 wersje wymagają wyjaśnienia. Nie sumuj pomiarów MDD sumarycznych i ich
 składowych bez znajomości hierarchii. Nie uzupełniaj pustego oddziału poprzednim.
-Zachowaj kontrolę B/E, energii biernej, ujemnych wartości i nieznanych kodów.
+Kierunek wyznacza wyłącznie B: `1` czynne pobranie, `-1` czynne oddanie,
+zgodnie z potwierdzeniem użytkownika 2026-10-15. E jest opisem; nie filtruj
+po słowach o energii biernej i nie stosuj fallbacku z E. Zachowaj walidację
+innych/brakujących kodów B, ujemnych wartości i nieznanych oddziałów.
 
 ## Sprawdź pogodę i czas
 

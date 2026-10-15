@@ -31,6 +31,9 @@ może odczytać wskazany `SKILL.md` jak zwykłą instrukcję.
 
 - Agreguj MDD w ramach oddziału i kierunku. Modele są wspólne dla oddziałów,
   ale prognozy i bilanse pozostają osobne. Osiem oddziałów × 72 godziny to 576 wierszy.
+- Kierunek ustala wyłącznie kolumna B: `1` = czynne pobranie, `-1` = czynne oddanie.
+  Kolumna E jest opisem; nie klasyfikuj ani nie odrzucaj po jej treści.
+  Inne lub brakujące kody B zgłaszaj z przykładami rekordów, bez zgadywania kierunku.
 - Najpierw wybierz korekty pomiarów: **4 > 3 > 2 > 1 > 0**. Nie sumuj wersji.
   Sprzeczne najlepsze wersje wymagają wyjaśnienia; nie wybieraj jednej losowo.
 - Dla całego przebiegu predykcji obowiązuje jeden `origin`/`as-of`. Do każdej

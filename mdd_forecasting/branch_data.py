@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .config import PipelineConfig, WEATHER_FEATURES
+from .config import ENERGY_DIRECTIONS, PipelineConfig, WEATHER_FEATURES
 from .io import (
     _ascii_token, _numeric, load_branch_mapping, normalize_energy,
     normalize_weather, read_energy_file,
@@ -102,6 +102,15 @@ def _within_day_gaps(measurements: pd.DataFrame, timezone: str) -> pd.DataFrame:
         columns={"klient_nazwa": "brakujace_rekordy_mdd"})
 
 
+def _energy_examples(frame: pd.DataFrame, mask) -> list[dict]:
+    columns = [col for col in [
+        "source_sheet", "source_row", "oddzial_code", "klient_nazwa",
+        "kierunek_code_zrodlowy", "kierunek_code", "kierunek_energii",
+        "doba_handlowa", "godzina_handlowa", "rodzaj", "wartosc_rzeczywista",
+    ] if col in frame]
+    return frame.loc[mask, columns].head(5).to_dict("records")
+
+
 def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw", return_measurements: bool = False,
                             *, mapping_path: str | Path | None = None):
     df = frame.copy()
@@ -118,19 +127,19 @@ def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw"
             "Sprawdź też wpisy inactive. Nieznane oddziały nie są pomijane ani przypisywane automatycznie."
         )
     df["oddzial_code"] = df["oddzial_code"].str.upper().replace(BRANCH_ALIASES)
-    # Wiersze z pustym oddziałem oraz kierunkiem 0 są poza portfelem oddziałów.
+    # Wiersze z pustym oddziałem są poza portfelem oddziałów.
     relevant = df["oddzial_code"].notna()
     df = df.loc[relevant].copy()
-    direction = df["kierunek_energii"].map(_ascii_token)
-    reactive = direction.str.contains("biern", na=False)
-    if reactive.any():
-        raise ValueError("W danych są wartości energii biernej. Eksportuj tylko energię czynną.")
-    if df["kierunek_energii_norm"].isna().any():
-        raise ValueError("Nie rozpoznano kierunku energii w kolumnach B/E.")
-    mismatch = ((df["kierunek_energii_norm"].eq("POBRANIE") & df["kierunek_code"].eq(-1))
-                | (df["kierunek_energii_norm"].eq("ODDANIE") & df["kierunek_code"].eq(1)))
-    if mismatch.any():
-        raise ValueError("Kierunki B i E są sprzeczne. Wyjaśnij znaczenie tych rekordów przed sumowaniem.")
+    invalid_direction = ~df["kierunek_code"].isin(ENERGY_DIRECTIONS)
+    if invalid_direction.any():
+        raise ValueError(
+            "Niepoprawny kierunek energii w kolumnie B. Wymagane: 1 = czynne pobranie, "
+            "-1 = czynne oddanie. Brak i inne wartości wymagają wyjaśnienia; "
+            "opis z E nie zastępuje kodu B. "
+            f"Liczba rekordów: {int(invalid_direction.sum())}. "
+            f"Przykłady: {_energy_examples(df, invalid_direction)}"
+        )
+    df["kierunek_energii_norm"] = df["kierunek_code"].map(ENERGY_DIRECTIONS).astype("string")
     if df["klient_nazwa"].isna().any():
         raise ValueError("Brak nazwy MDD: nie można bezpiecznie wybrać korekt pomiaru.")
     df["rodzaj_rank"] = _numeric(df["rodzaj"])
@@ -148,7 +157,13 @@ def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw"
     best = df.loc[df["rodzaj_rank"].eq(highest)].copy()
     conflicts = best.groupby(measurement, dropna=False)["wartosc_rzeczywista"].nunique(dropna=False)
     if conflicts.gt(1).any():
-        raise ValueError("Ten sam pomiar MDD ma różne wartości w tej samej najlepszej wersji danych.")
+        conflict_keys = conflicts.loc[conflicts.gt(1)].index
+        conflicting = best.set_index(measurement).index.isin(conflict_keys)
+        raise ValueError(
+            "Ten sam pomiar MDD ma różne wartości w tej samej najlepszej wersji danych. "
+            "Kierunek ustala B; różne opisy E nie tworzą osobnych pomiarów. "
+            f"Przykłady: {_energy_examples(best, conflicting)}"
+        )
     best = best.drop_duplicates(measurement, keep="last")
     keys = ["oddzial_code", "punkt", "target_time_utc", "doba_handlowa", "godzina_handlowa", "kierunek_energii_norm"]
     grouped = best.groupby(keys, dropna=False)

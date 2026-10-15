@@ -203,8 +203,16 @@ zgodna z treningiem. Aby korzystać z nowego porównywania modeli, wykonaj treni
 
 ## Kontrole danych i granice oceny
 
-Program odrzuca nazwy energii biernej zawierające rdzeń `biern` i wartości
-nieskończone. Luka między pomiarami tego samego MDD w tej samej dobie powoduje
+Kierunek energii wyznacza tylko kolumna B: `1` czynne pobranie, `-1` czynne oddanie.
+Opis E nie jest używany do klasyfikacji, filtrowania ani zastępowania brakującego B.
+Nazwy energii biernej w E nie blokują treningu, jeżeli B jest poprawne.
+Inne lub brakujące kody B kończą się komunikatem z arkuszem, numerem wiersza
+i oryginalną wartością. Nie są pomijane ani interpretowane przez sam znak liczby.
+Różnice opisu E nie pozwalają sumować dwóch wersji tego samego pomiaru.
+Sprzeczne wartości najlepszej korekty są błędem z przykładami rekordów.
+Po zmianie reguły kierunku wykonaj ponowny trening na źródłowym eksporcie.
+
+Program odrzuca wartości nieskończone. Luka między pomiarami tego samego MDD w tej samej dobie powoduje
 brak sumy oddziału w tej godzinie. Nie zakładamy obecności przed pierwszym
 ani po ostatnim pomiarze MDD; do takich ocen potrzebne są dodatkowe informacje
 o kompletności eksportu i portfelu. Przerw nie uzupełniamy zerami.

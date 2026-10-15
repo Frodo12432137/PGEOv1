@@ -110,13 +110,59 @@ class TestBranchData(unittest.TestCase):
         energy, _ = aggregate_branch_energy(normalized_energy(rows))
         self.assertTrue(pd.isna(energy.iloc[0]["wartosc_rzeczywista"]))
 
-    def test_direction_conflict_and_unknown_branch_are_rejected(self):
+    def test_column_b_overrides_opposite_e_and_unknown_branch_is_rejected(self):
         row = ["BIA", -1, "G", "K", "czynne pobranie", "2025-01-01", 4, 1, 10]
-        with self.assertRaisesRegex(ValueError, "sprzeczne"):
-            aggregate_branch_energy(normalized_energy([row]))
+        hourly, _ = aggregate_branch_energy(normalized_energy([row]))
+        self.assertEqual(hourly.kierunek_energii_norm.tolist(), ["ODDANIE"])
         row[0] = "BRAK_MAPOWANIA"
         with self.assertRaisesRegex(ValueError, "Brak mapowania"):
             aggregate_branch_energy(normalized_energy([row]))
+
+    def test_column_b_numeric_formats_determine_direction_without_e(self):
+        for code, expected in [(1, "POBRANIE"), ("1,0", "POBRANIE"), ("+1", "POBRANIE"),
+                               (-1.0, "ODDANIE"), ("-1,0", "ODDANIE")]:
+            with self.subTest(code=code):
+                frame = normalized_energy([["BIA", code, "G", "K", None, "2025-01-01", 4, 1, 10]])
+                self.assertEqual(frame.direction_source.tolist(), ["kolumna_B"])
+                hourly, _ = aggregate_branch_energy(frame)
+                self.assertEqual(hourly.kierunek_energii_norm.tolist(), [expected])
+
+    def test_invalid_column_b_has_no_e_fallback_and_reports_source_record(self):
+        for code in [None, "błędny kod", 0, 2, -2, 0.5, np.inf, -np.inf]:
+            with self.subTest(code=code):
+                frame = normalized_energy([["BIA", code, "G", "K", "czynne pobranie", "2025-01-01", 4, 1, 10]])
+                with self.assertRaisesRegex(ValueError, "kolumnie B") as raised:
+                    aggregate_branch_energy(frame)
+                message = str(raised.exception)
+                for part in ["source_row", "source_sheet", "dane_po_transpozycji", "kierunek_code_zrodlowy"]:
+                    self.assertIn(part, message)
+                if isinstance(code, str):
+                    self.assertIn(code, message)
+
+    def test_different_e_descriptions_do_not_duplicate_or_hide_conflicting_measurements(self):
+        rows = [["BIA", 1, "G", "K", label, "2025-01-01", 4, 1, 10]
+                for label in ["czynne pobranie", "energia bierna oddana"]]
+        hourly, quality = aggregate_branch_energy(normalized_energy(rows))
+        self.assertEqual(hourly.wartosc_rzeczywista.tolist(), [10])
+        self.assertEqual(quality.loc[quality.kontrola.eq("odrzucone_korekty_i_duplikaty"), "liczba"].iloc[0], 1)
+        rows[1][-1] = 12
+        with self.assertRaisesRegex(ValueError, "różne wartości") as raised:
+            aggregate_branch_energy(normalized_energy(rows))
+        message = str(raised.exception)
+        self.assertIn("source_row", message)
+        self.assertIn("energia bierna oddana", message)
+
+    def test_xlsx_column_b_defines_both_directions_despite_descriptions(self):
+        rows = [["ZŁT", 1, "G", "K", "energia bierna oddana", "2025-01-01", 4, 1, 10],
+                ["ZŁT", -1, "G", "K", "czynne pobranie", "2025-01-01", 4, 1, 4]]
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "energia.xlsx"
+            pd.DataFrame(rows, columns=ENERGY_COLUMNS).to_excel(path, index=False, sheet_name="dane_po_transpozycji")
+            energy, quality, _ = load_branch_energy(path, PipelineConfig())
+        values = energy.set_index("kierunek_energii_norm").wartosc_rzeczywista
+        self.assertEqual(values["POBRANIE"] - values["ODDANIE"], 6)
+        self.assertEqual(set(energy.oddzial_code), {"ZEUD"})
+        self.assertEqual(quality.loc[quality.kontrola.eq("niepoprawny_kierunek_B"), "liczba"].iloc[0], 0)
 
     def test_trade_hours_dst_have_distinct_utc(self):
         result = trade_time_utc(pd.Series(pd.to_datetime(["2025-10-26"] * 2)), pd.Series([3, 25]), "Europe/Warsaw")

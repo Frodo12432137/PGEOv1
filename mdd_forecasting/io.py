@@ -10,7 +10,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from .config import ENERGY_COLUMNS, PipelineConfig, WEATHER_ALIASES, WEATHER_FEATURES
+from .config import ENERGY_COLUMNS, ENERGY_DIRECTIONS, PipelineConfig, WEATHER_ALIASES, WEATHER_FEATURES
 
 
 def _ascii_token(value: object) -> str:
@@ -224,25 +224,17 @@ def normalize_energy(
         df[col] = _clean_text(df[col])
 
     df["wartosc_rzeczywista"] = _numeric(df["wartosc_rzeczywista"])
+    df["kierunek_code_zrodlowy"] = df["kierunek_code"].copy()
     df["kierunek_code"] = _numeric(df["kierunek_code"])
     df["godzina_handlowa"] = _numeric(
         df["godzina_handlowa"].astype("string").str.extract(r"(\d+)", expand=False)
     )
     df["doba_handlowa"] = pd.to_datetime(df["doba_handlowa"], errors="coerce").dt.normalize()
 
-    direction_text = df["kierunek_energii"].map(_ascii_token)
-    df["kierunek_energii_norm"] = pd.Series(pd.NA, index=df.index, dtype="string")
-    df.loc[direction_text.str.contains("pobran", na=False), "kierunek_energii_norm"] = "POBRANIE"
-    df.loc[direction_text.str.contains("oddani", na=False), "kierunek_energii_norm"] = "ODDANIE"
-    df["direction_source"] = np.where(df["kierunek_energii_norm"].notna(), "kolumna_E", "brak")
-
-    # Awaryjny fallback służy wyłącznie brakującym E; E pozostaje źródłem prawdy.
-    missing_direction = df["kierunek_energii_norm"].isna()
-    df.loc[missing_direction & df["kierunek_code"].gt(0), "kierunek_energii_norm"] = "POBRANIE"
-    df.loc[missing_direction & df["kierunek_code"].lt(0), "kierunek_energii_norm"] = "ODDANIE"
-    df.loc[missing_direction & df["kierunek_energii_norm"].notna(), "direction_source"] = (
-        "fallback_kolumna_B"
-    )
+    # Potwierdzony kontrakt eksportu: wyłącznie B określa kierunek energii czynnej.
+    # E pozostaje oryginalnym opisem; nie służy do klasyfikacji ani filtrowania.
+    df["kierunek_energii_norm"] = df["kierunek_code"].map(ENERGY_DIRECTIONS).astype("string")
+    df["direction_source"] = np.where(df["kierunek_energii_norm"].notna(), "kolumna_B", "brak")
 
     df["_oddzial_key"] = df["oddzial_code"].map(_ascii_token)
     df["punkt"] = df["_oddzial_key"].map(branch_mapping).astype("string")
@@ -254,10 +246,6 @@ def normalize_energy(
         df.loc[normal_hour, "doba_handlowa"]
         + pd.to_timedelta(df.loc[normal_hour, "godzina_handlowa"] - 1, unit="h")
     )
-
-    mismatch = (
-        df["kierunek_energii_norm"].eq("POBRANIE") & df["kierunek_code"].lt(0)
-    ) | (df["kierunek_energii_norm"].eq("ODDANIE") & df["kierunek_code"].gt(0))
 
     unknown_codes = sorted(
         df.loc[df["oddzial_code"].notna() & df["punkt"].isna(), "oddzial_code"]
@@ -271,8 +259,7 @@ def normalize_energy(
             ["wiersze_energii", len(df), ""],
             ["brak_kodu_oddzialu", int(df["oddzial_code"].isna().sum()), ""],
             ["nieznany_kod_oddzialu", int((df["oddzial_code"].notna() & df["punkt"].isna()).sum()), ", ".join(unknown_codes)],
-            ["brak_kierunku_E_i_B", int(df["kierunek_energii_norm"].isna().sum()), ""],
-            ["niezgodnosc_B_wobec_E", int(mismatch.sum()), "kolumna E ma pierwszeństwo"],
+            ["niepoprawny_kierunek_B", int(df["kierunek_energii_norm"].isna().sum()), "B: 1 = czynne pobranie, -1 = czynne oddanie; E jest opisem"],
             ["godzina_25_lub_nieprawidlowa", int((~normal_hour).sum()), "wymaga klucza godzinaHandlowa25"],
             ["brak_wartosci_rzeczywistej", int(df["wartosc_rzeczywista"].isna().sum()), "może oznaczać wiersze przyszłe"],
             ["ujemna_wartosc", int(df["wartosc_rzeczywista"].lt(0).sum()), "wartości nie są automatycznie odwracane"],
