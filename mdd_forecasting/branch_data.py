@@ -65,8 +65,36 @@ def _from_start_date(frame: pd.DataFrame, start_date: object | None):
     return frame.loc[keep].copy(), int((~keep).sum())
 
 
+def _without_dst_days(frame: pd.DataFrame, timezone: str):
+    """Wyłącz całe lokalne doby inne niż 24 h, zachowując NaT do walidacji.
+
+    Reguła jest kalendarzowa: nie zależy od obecności H25 ani kompletności MDD.
+    Raport obejmuje dni zmiany czasu w zakresie danych, także z zerem rekordów.
+    """
+    dates = frame["doba_handlowa"]
+    calendar = pd.DatetimeIndex([]) if dates.notna().sum() == 0 else pd.date_range(dates.min(), dates.max(), freq="D")
+    midnight = calendar.tz_localize(timezone)
+    next_midnight = (calendar + pd.Timedelta(days=1)).tz_localize(timezone)
+    hours = (next_midnight.tz_convert("UTC") - midnight.tz_convert("UTC")) / pd.Timedelta(hours=1)
+    report = pd.DataFrame({"doba_handlowa": calendar, "godziny_doby": hours})
+    report = report.loc[report.godziny_doby.ne(24)].copy()
+    counts = dates.value_counts()
+    report["rekordy_wykluczone"] = report.doba_handlowa.map(counts).fillna(0).astype(int)
+    excluded = dates.isin(report.doba_handlowa)
+    if not report.empty:
+        description = ", ".join(f"{row.doba_handlowa:%Y-%m-%d} ({row.godziny_doby:g} h)" for row in report.itertuples())
+        print(f"Pomijam doby zmiany czasu: {description}. Wyłączone rekordy: {int(excluded.sum())}.", flush=True)
+    return frame.loc[~excluded].copy(), report.reset_index(drop=True)
+
+
+def _empty_dst_report():
+    return pd.DataFrame(columns=["doba_handlowa", "godziny_doby", "rekordy_wykluczone"])
+
+
 def load_branch_energy(path: str | Path, config: PipelineConfig, return_measurements: bool = False,
-                       *, start_date: object | None = None):
+                       *, start_date: object | None = None, exclude_dst_days: bool = False,
+                       return_excluded_days: bool = False):
+    """Opcjonalny raport wyłączonych dób jest ostatnim elementem wyniku."""
     mapping, mapping_table = load_branch_mapping(config.mapping_path)
     raw = read_energy_file(path, sheet_regex=config.sheet_regex)
     normalized, quality = normalize_energy(raw, mapping)
@@ -76,14 +104,27 @@ def load_branch_energy(path: str | Path, config: PipelineConfig, return_measurem
             "kontrola": "przed_data_startowa", "liczba": excluded,
             "szczegoly": f"poza wybranym zakresem od {start_date}; wyłączone przed walidacją i agregacją",
         }])], ignore_index=True)
+    excluded_days = _empty_dst_report()
+    if exclude_dst_days:
+        normalized, excluded_days = _without_dst_days(normalized, config.timezone)
+        quality = pd.concat([quality, pd.DataFrame([{
+            "kontrola": "rekordy_wykluczone_zmiana_czasu",
+            "liczba": int(excluded_days.rekordy_wykluczone.sum()),
+            "szczegoly": "całe doby 23/25 h przed walidacją i agregacją; szczegóły w pominiete_dni_zmiany_czasu.csv",
+        }, {
+            "kontrola": "wiersze_po_filtrach", "liczba": len(normalized),
+            "szczegoly": "zakres po start_date i wyłączeniu dób zmiany czasu; bez uzupełniania zerami",
+        }])], ignore_index=True)
     hourly, extra, measurements = aggregate_branch_energy(
         normalized, config.timezone, return_measurements=True, mapping_path=config.mapping_path,
     )
     result = (hourly, pd.concat([quality, extra], ignore_index=True), mapping_table)
-    return (*result, measurements) if return_measurements else result
+    if return_measurements:
+        result = (*result, measurements)
+    return (*result, excluded_days) if return_excluded_days else result
 
 
-def load_prediction_measurements(path: str | Path, bundle: dict) -> pd.DataFrame:
+def load_prediction_measurements(path: str | Path, bundle: dict, *, return_excluded_days: bool = False):
     # Przy predykcji używamy mapowania zapisanego z modelem, nie zmienionego słownika.
     mapping = {_ascii_token(row.oddzial_code): row.punkt for row in bundle["branches"].itertuples()}
     for alias, canonical in BRANCH_ALIASES.items():
@@ -93,8 +134,11 @@ def load_prediction_measurements(path: str | Path, bundle: dict) -> pd.DataFrame
     normalized, _ = normalize_energy(raw, mapping)
     start = bundle.get("input_schema", {}).get("start_date")
     normalized, _ = _from_start_date(normalized, start)
+    excluded_days = _empty_dst_report()
+    if bundle.get("input_schema", {}).get("exclude_dst_days", False):
+        normalized, excluded_days = _without_dst_days(normalized, bundle["settings"]["timezone"])
     _, _, measurements = aggregate_branch_energy(normalized, bundle["settings"]["timezone"], return_measurements=True)
-    return measurements
+    return (measurements, excluded_days) if return_excluded_days else measurements
 
 
 def _within_day_gaps(measurements: pd.DataFrame, timezone: str) -> pd.DataFrame:

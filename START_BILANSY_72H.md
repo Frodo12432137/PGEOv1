@@ -90,6 +90,18 @@ wartości są deduplikowane, a sprzeczne wartości są zgłaszane z przykładami
 Ujemne wartości i nieznane oddziały pozostają błędami.
 Puste A nie jest uzupełniane poprzednim oddziałem.
 
+Domyślny trening, zgodnie z decyzją użytkownika, pomija całe doby 23/25 h
+w kalendarzu `Europe/Warsaw`, po `--start-date`, ale przed walidacją i agregacją.
+Dotyczy to obu zmian czasu w każdym roku historii. Nie wyznacza się tych dni
+na podstawie liczby pomiarów ani H25. Niepoprawna data F pozostaje do wyjaśnienia.
+Zestawienie dat i liczby rekordów zawiera `pominiete_dni_zmiany_czasu.csv`
+i arkusz `Pominiete_doby`. Źródłowy plik pozostaje zachowany.
+Wyłączone doby nie trafiają do treningu, walidacji ani testu, a pomiary sąsiednich
+dat zachowują swoje UTC. Audyt portfela pomija te daty przy liczeniu braków MDD.
+Opcja CLI `--include-dst-days` przywraca wcześniejszą obsługę tych dób.
+Reguła zostaje zapisana w modelu i jest stosowana także do aktualnego eksportu
+energii w audycie predykcji. [Szczegóły](PARAMETRY_I_RAPORTY.md#kontrole-danych-i-granice-oceny).
+
 Mapowanie można edytować w `mdd_forecasting/config/oddzial_miasto.csv`:
 
 | Oddział | Punkt pogody |
@@ -192,6 +204,11 @@ Znaczenie tej etykiety w eksporcie pozostaje do sprawdzenia. Uruchom
 treningu. Sam jesienny zestaw 1–25 pasuje do obu wariantów i nie wyjaśnia
 znaczenia H25. [Instrukcja diagnostyki](DIAGNOSTYKA_GODZIN.md).
 
+Aktualne obejście wyłącza całe doby zmiany czasu z historii energii; nie zmienia
+interpretacji pozostałych godzin ani zapytań pogodowych. Prognoza nadal liczy
+72 rzeczywiste godziny, również przy przejściu CET/CEST. Wynik testu jakości
+nie opisuje dokładności w wyłączonych dobach.
+
 Nie potwierdzono na samych zdjęciach, czy czas źródła zawsze jest czasem
 udostępnienia w bazie. Jeśli istnieje późniejszy czas ingestii, on również musi
 ograniczać dostępność prognozy.
@@ -246,6 +263,7 @@ Folder treningu zawiera:
 - `metryki_test.csv` — MAE, RMSE, bias i WAPE, dla kierunków i bilansu;
 - `backtest_bilans.csv` — prognozy, realizacje i profil odniesienia;
 - `kontrola_energii.csv`, `kontrola_modelu.csv` — korekty, braki oraz założenia;
+- `pominiete_dni_zmiany_czasu.csv` — kalendarzowo wyłączone doby 23/25 h i liczby rekordów;
 - `historia_oddzialow.csv` — przygotowane sumy godzinowe.
 - `portfel_mdd.csv` — daty obecności, przerwy i status każdego MDD;
 - `przerwy_pomiarow_mdd.csv` — okresy braku pomiarów zakończone powrotem;

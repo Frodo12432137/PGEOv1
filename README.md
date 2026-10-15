@@ -13,6 +13,11 @@ System przygotowuje osobny godzinowy bilans dla każdego oddziału/OSD PGE:
 4. Uruchamiaj **`uruchom_prognoze_bilansow.py`** kilka razy dziennie.
    Program wczytuje zapisany model i nie wykonuje ponownego uczenia.
 
+Trening domyślnie pomija całe doby zmiany czasu (23 i 25 h) w `Europe/Warsaw`,
+przed walidacją i agregacją energii. Daty i liczby rekordów zapisuje w
+`pominiete_dni_zmiany_czasu.csv` oraz arkuszu `Pominiete_doby` raportu Excel.
+W pliku treningowym odpowiada za to `include_dst_days=False`.
+
 Połączenie z firmowym SQL wymaga ODBC Driver 17 for SQL Server, sieci/VPN
 i uprawnień konta Windows. Kwerenda jest osobnym plikiem wykonywanym przez
 Python/pyodbc. Dostępne jest też użycie eksportu pogody zamiast połączenia z SQL.

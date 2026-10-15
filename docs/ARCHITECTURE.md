@@ -49,6 +49,11 @@ obsługują starszy przepływ MDD. Opisuje go [README pakietu](../mdd_forecastin
 
 - `load_branch_energy()` zwraca sumy godzinowe, kontrolę jakości i mapowanie.
   `return_measurements=True` dodaje wybrane pomiary MDD do audytu.
+  `exclude_dst_days=True` wyłącza kalendarzowe doby 23/25 h po start_date i
+  przed walidacją; CLI treningu domyślnie ustawia ten filtr.
+  `return_excluded_days=True` dodaje raport wykluczeń na końcu wyniku.
+  `load_prediction_measurements()` używa filtra zapisanego w `input_schema`
+  i opcjonalnie zwraca raport przez `return_excluded_days=True`.
 - `prepare_weather_vintages()` zachowuje wydania i normalizuje czasy.
   `join_weather_asof()` wybiera najnowsze wydanie dla punktu i celu z czasem
   dostępności nie większym niż origin. Nie wybiera pogody osobno względem czasu celu.
@@ -62,6 +67,7 @@ obsługują starszy przepływ MDD. Opisuje go [README pakietu](../mdd_forecastin
   nie większego niż treningowy. Nie wykonuje uczenia. Wybrany CatBoost wymaga
   tej samej wersji CatBoost co trening.
 - `analyze_portfolio()` operuje na pomiarach wybranych po korektach.
+  `ignored_dates` wyłącza celowo pominięte doby z liczenia przerw i opóźnień MDD.
   `annotate_portfolio()` porównuje aktualny eksport z portfelem treningowym,
   jeśli został dostarczony. Nie modyfikuje prognozowanych wolumenów.
 
@@ -75,6 +81,8 @@ Szczegóły raportów treningu są w [instrukcji](../START_BILANSY_72H.md#wyniki
 Predykcja zapisuje `prognoza_bilansu_72h.csv`, `szczegoly_prognozy.csv`
 i dostępne raporty portfela. Liczba bilansów wynosi `liczba oddziałów modelu × horyzont`.
 Przy ośmiu oddziałach i 72 h to 576, także w okresie zmiany czasu.
+Trening zapisuje też `pominiete_dni_zmiany_czasu.csv` i arkusz `Pominiete_doby`;
+format modelu pozostaje 3, z flagą `input_schema.exclude_dst_days`.
 
 CSV: separator `;`, przecinek dziesiętny, UTF-8 BOM.
 `status` opisuje dostępność prognozy, `status_portfela` opisuje kontrolę MDD.
@@ -93,6 +101,7 @@ Kod 0 nie jest potwierdzeniem aktualnych umów ani dokładności prognozy.
 | [`test_branch_mapping.py`](../tests/test_branch_mapping.py) | kodowania i separatory CSV, walidacja mapowania, ścieżki, aliasy Łodzi i audyt z zapisanym mapowaniem |
 | [`test_energy_input_diagnostics.py`](../tests/test_energy_input_diagnostics.py) | oryginalne F/H i przyczyny błędów, 25 godzin jesienią, rozpoznawanie SQL/eksportu pogody |
 | [`test_energy_hour_audit.py`](../tests/test_energy_hour_audit.py) | oba wiosenne wzorce, nierozstrzygająca jesień, braki/zera/konflikty, rozdzielenie serii i korekt, odczyt CSV/XLSX oraz raport bez zmiany wejścia |
+| [`test_dst_day_exclusion.py`](../tests/test_dst_day_exclusion.py) | całe doby 23/25 h, walidacja zwykłych dni, UTC bez kompresji, audyt bez fałszywych przerw, zapis reguły i trening bez wyłączonych celów w teście |
 
 Przykłady poleceń są w instrukcji i skillach. Aktualny zestaw opcji sprawdzisz przez
 `python -m mdd_forecasting.train --help` oraz

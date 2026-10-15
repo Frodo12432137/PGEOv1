@@ -203,6 +203,7 @@ def write_training_workbook(bundle: dict, reports: dict[str, pd.DataFrame], dest
         "porownanie_wariantow": "Porownanie_walidacja", "waznosc_pogody": "Waznosc_pogody",
         "pokrycie_okien": "Pokrycie_okien", "pokrycie_pogody": "Pokrycie_pogody",
         "kontrola_modelu": "Kontrola_modelu", "kontrola_energii": "Kontrola_energii",
+        "pominiete_dni_zmiany_czasu": "Pominiete_doby",
         "podsumowanie_portfela": "Portfel", "backtest_bilans": "Backtest_bilans",
     }
     for key, name in sheets.items():

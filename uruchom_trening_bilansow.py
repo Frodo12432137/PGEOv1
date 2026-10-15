@@ -29,6 +29,7 @@ PARAMETRY = {
 
     # Podział czasowy: trening → walidacja wyboru → osobny test jakości.
     "start_date": "2024-07-01",  # Początek używanej historii energii.
+    "include_dst_days": False,  # False = pomijaj całe doby zmiany czasu (23 i 25 h).
     "validation_days": 14,  # Okno doboru modelu/pogody/parametrów.
     "test_days": 14,  # Późniejszy test; NIE służy do strojenia.
     "label_delay_hours": 72,  # Embargo; nie odtwarza publikacji korekt po miesiącach.

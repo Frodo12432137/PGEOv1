@@ -132,6 +132,7 @@ Raport pokazuje też, gdzie wybrany ML przegrywa ze zwykłym profilem historyczn
 | `weather_variants` | jawna lista zestawów pogody do porównania |
 | `importance_rows` | maksymalna próbka testu do grupowej ważności pogody; 0 wyłącza |
 | `start_date` | pierwsza doba historii energii; użyta będzie część wspólna z pogodą |
+| `include_dst_days` | domyślnie `False`: pomijaj całe doby 23/25 h przed walidacją i agregacją energii |
 | `validation_days` | długość okna wyboru wariantu i parametrów |
 | `test_days` | późniejsze okno niezależnej oceny; nie stroić według jego wyników |
 | `label_delay_hours` | embargo między targetami treningu a oceną; nie zastępuje czasu publikacji korekt |
@@ -210,6 +211,33 @@ zgodna z treningiem. Aby korzystać z nowego porównywania modeli, wykonaj treni
 audytu predykcji z zapisanego modelu. Wiersze z rozpoznaną dobą starszą od tej
 daty są liczone w `kontrola_energii.csv` jako `przed_data_startowa`.
 Nierozpoznane daty pozostają do sprawdzenia; nie są uznawane za stare rekordy.
+
+Zgodnie z decyzją użytkownika trening domyślnie wyłącza całe lokalne doby
+zmiany czasu: 23 h wiosną i 25 h jesienią, we wszystkich latach użytej historii.
+Reguła wynika z kalendarza `Europe/Warsaw`, a nie liczby wierszy albo obecności H25.
+Obowiązuje po `start_date`, przed walidacją kierunku, korekt, czasu i wartości.
+Nierozpoznana F oraz niepoprawne H/B/I w pozostałych dniach nadal podlegają walidacji.
+
+Lista powstaje w `FOLDER_MODELU/pominiete_dni_zmiany_czasu.csv` i arkuszu
+`Pominiete_doby` w Excelu: `doba_handlowa`, `godziny_doby`, `rekordy_wykluczone`.
+Raport obejmuje doby DST w zakresie po filtrze daty, również z zerem rekordów.
+`kontrola_energii.csv` podaje liczbę wyłączonych rekordów oraz wierszy po filtrach;
+wcześniejsze kontrole źródłowe nadal odnoszą się do całego odczytanego eksportu.
+Po poprawnym wczytaniu raporty wykluczeń i jakości są zapisane jeszcze przed SQL i uczeniem.
+Przerwy nie są uzupełniane zerami ani kompresowane. Celowo wyłączone doby
+nie są liczone jako brak pomiarów MDD w audycie portfela.
+
+Ustawienie jest zapisane z modelem jako `input_schema.exclude_dst_days`.
+Audyt aktualnego eksportu przy predykcji stosuje tę samą regułę i zapisuje
+własny raport wykluczeń. Starsze modele bez tego pola zachowują poprzedni odczyt.
+`include_dst_days=True` lub CLI `--include-dst-days` przywraca wcześniejszą
+obsługę tych dni, wraz z jej walidacją. Aby zastosować nowy zakres, ponów trening.
+
+Wyłączenie dotyczy realizacji energii użytych do treningu, walidacji i testu.
+Prognoza nadal obejmuje 72 rzeczywiste godziny, także przy zmianie czasu.
+Ocena dokładności nie obejmuje wykluczonych dób. Obecne przeliczanie H w
+pozostałych dniach, archiwum pogody, algorytmy i parametry CatBoost pozostają te same.
+To obejście nie potwierdza definicji H w źródłowym eksporcie.
 
 Niepoprawna doba/godzina jest zgłaszana z liczbą rekordów i przyczyną:
 nierozpoznana data F, niecałkowite H/zakres poza 1–25, godzina 25 poza jesienną

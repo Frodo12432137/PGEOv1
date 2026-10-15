@@ -6,6 +6,11 @@ numerować kolejne rzeczywiste godziny: wtedy H3 oznaczałoby 03:00.
 Użytkownik nie potwierdził ostatecznie konwencji. Diagnostyka porównuje obie
 możliwości, zanim zmienimy przeliczanie i łączenie energii z pogodą.
 
+Aktualna decyzja użytkownika: na razie pomijać całe doby zmiany czasu w historii
+modelu. Trening robi to domyślnie przed walidacją i agregacją, a jego wykluczenia
+opisuje `pominiete_dni_zmiany_czasu.csv`. Ten skrypt diagnostyczny nadal bada
+cały oryginalny eksport, razem z pominiętymi dniami, bez zmiany danych.
+
 ## Uruchomienie strzałką w VS Code
 
 1. Pobierz aktualny kod, zachowując swoje ustawienia

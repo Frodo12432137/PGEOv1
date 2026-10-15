@@ -186,3 +186,24 @@ lub niezależny znacznik UTC. Zera nie są automatycznie technicznymi wypełnien
 Skrypt zapisuje podsumowanie bez nazw MDD oraz lokalne szczegółowe CSV.
 Przeliczanie czasu treningu, predykcji i pogody pozostaje bez zmian do analizy
 rzeczywistego raportu. W chmurze nadal nie ma rzeczywistego pliku energii PGE.
+
+Aktualna decyzja użytkownika, 15 października 2026: na razie wyłączyć całe
+doby zmiany czasu, zarówno krótsze, jak i dłuższe, i zachować modelowanie.
+W kolejnych zdjęciach potwierdzono H25 na 2023-10-29, 2024-10-27, 2025-10-26
+oraz niezerowe rekordy H25: odpowiednio 88, 110 i 138. Wiosną 2024-03-31 jest
+zestaw 1,3…24, bez H2, z niezerowymi wartościami H3. Definicja H pozostaje
+niepotwierdzona; nie należy arbitralnie zmieniać numeracji ani usuwać samych H25.
+
+CLI treningu i strzałka VS Code domyślnie wyłączają całe doby inne niż 24 h
+w `Europe/Warsaw`, po start_date i przed walidacją/agregacją energii.
+`include_dst_days=False` w launcherze jest ustawieniem domyślnym;
+`--include-dst-days` przywraca poprzednie zachowanie. Niskopoziomowy loader
+ma opcjonalny `exclude_dst_days=False` dla zgodności; CLI przekazuje `True`.
+`pominiete_dni_zmiany_czasu.csv` i arkusz `Pominiete_doby` pokazują daty,
+długość doby i liczbę wyłączonych rekordów. Kontrola portfela nie zalicza
+celowo wyłączonych dni do przerw MDD. Model zapisuje
+`input_schema.exclude_dst_days`; audyt nowych eksportów stosuje tę samą regułę,
+a starsze modele bez pola zachowują wcześniejszą obsługę. Prognoza nadal liczy
+72 rzeczywiste godziny. Wykluczone cele nie biorą udziału w treningu, walidacji
+ani teście; jakość w tych dobach nie jest oceniona. Nie zmieniono algorytmów,
+parametrów CatBoost, mapowania zwykłych godzin ani pogody i cutoffu origin.

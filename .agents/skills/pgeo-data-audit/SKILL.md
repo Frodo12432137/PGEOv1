@@ -36,6 +36,12 @@ według wartości bezwzględnej ani filtrem globalnego ostatniego wydania.
 Jeśli ingestia jest późniejsza od czasu źródła, uwzględnij rzeczywistą dostępność.
 
 Łącz po UTC; sprawdź lokalną numerację handlową 23/25 godzin w `Europe/Warsaw`.
+Aktualny trening domyślnie pomija całe doby zmiany czasu zgodnie z decyzją
+użytkownika. Odczytaj `pominiete_dni_zmiany_czasu.csv`; reguła działa po
+start_date i przed walidacją. W audycie stosuj flagę zapisaną w modelu oraz
+ignored_dates, aby pominięte dni nie udawały braków MDD. Opcja
+`--include-dst-days` przywraca poprzednią obsługę. Samodzielna diagnostyka
+nadal czyta cały eksport. Test zakresu: `tests.test_dst_day_exclusion`.
 Jednostki energii i promieniowania trzeba potwierdzić, nie odgadywać.
 Jeśli numeracja H jest nieznana, użyj `uruchom_diagnostyke_godzin.py` lub
 `python -m mdd_forecasting.energy_time_diagnostics --energy PLIK --output-dir FOLDER`.

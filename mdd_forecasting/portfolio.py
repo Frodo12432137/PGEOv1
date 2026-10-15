@@ -8,9 +8,16 @@ SCOPE = ["oddzial_code", "kierunek_energii_norm"]
 CLIENT = [*SCOPE, "klient_nazwa"]
 
 
-def analyze_portfolio(measurements: pd.DataFrame, grace_days: int = 14) -> dict[str, pd.DataFrame]:
+def analyze_portfolio(measurements: pd.DataFrame, grace_days: int = 14, *, ignored_dates=()) -> dict[str, pd.DataFrame]:
     if grace_days < 1:
         raise ValueError("Okres kontroli portfela musi być dodatnią liczbą dni.")
+    ignored = pd.DatetimeIndex(ignored_dates).dropna().normalize().unique().sort_values()
+
+    def ignored_between(start, end):
+        # Otwarte granice: oba końce są dniami z zachowanymi pomiarami.
+        left = ignored.searchsorted(start, side="right")
+        right = ignored.searchsorted(end, side="left")
+        return np.maximum(right - left, 0)
     # Zero nadal jest pomiarem. Pusty I nie dowodzi obecności realizacji.
     data = measurements.loc[measurements["wartosc_rzeczywista"].notna()].copy()
     if data.empty:
@@ -21,6 +28,7 @@ def analyze_portfolio(measurements: pd.DataFrame, grace_days: int = 14) -> dict[
     daily = daily.sort_values([*CLIENT, "doba_handlowa"])
     daily["poprzednia_doba"] = daily.groupby(CLIENT)["doba_handlowa"].shift()
     daily["dni_przerwy"] = (daily["doba_handlowa"] - daily["poprzednia_doba"]).dt.days - 1
+    daily["dni_przerwy"] -= ignored_between(daily["poprzednia_doba"], daily["doba_handlowa"])
     gaps = daily.loc[daily["dni_przerwy"].gt(0), [*CLIENT, "poprzednia_doba", "doba_handlowa", "dni_przerwy"]].copy()
     gaps["brak_od"] = gaps["poprzednia_doba"] + pd.Timedelta(days=1)
     gaps["brak_do"] = gaps["doba_handlowa"] - pd.Timedelta(days=1)
@@ -36,6 +44,7 @@ def analyze_portfolio(measurements: pd.DataFrame, grace_days: int = 14) -> dict[
     ).reset_index()
     clients = clients.merge(references, on=SCOPE, validate="many_to_one")
     clients["dni_bez_pomiarow_na_koncu"] = (clients["koniec_eksportu_doba"] - clients["ostatnia_doba"]).dt.days
+    clients["dni_bez_pomiarow_na_koncu"] -= ignored_between(clients["ostatnia_doba"], clients["koniec_eksportu_doba"])
     clients["dluzszy_brak"] = clients["dni_bez_pomiarow_na_koncu"].ge(grace_days)
     clients["status"] = np.select(
         [clients["dluzszy_brak"], clients["dni_bez_pomiarow_na_koncu"].gt(0)],
@@ -54,7 +63,7 @@ def analyze_portfolio(measurements: pd.DataFrame, grace_days: int = 14) -> dict[
             added, missing = set(), set()
             if previous_day is None:
                 status = "PIERWSZA_DOBA_EKSPORTU"
-            elif (date - previous_day).days > 1:
+            elif (date - previous_day).days - int(ignored_between(previous_day, date)) > 1:
                 status = "PRZERWA_W_DANYCH_ODDZIALU"
             else:
                 added, missing = members - previous_members, previous_members - members

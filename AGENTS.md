@@ -42,6 +42,9 @@ może odczytać wskazany `SKILL.md` jak zwykłą instrukcję.
   nie odtwarzają informacji dostępnej w chwili uruchomienia.
 - Klucze czasu łącz po UTC. Kalendarz i eksport handlowy używają `Europe/Warsaw`.
   Zachowaj obsługę dób 23/25 godzin; nie utożsamiaj godziny handlowej 25 z północą.
+  Aktualna decyzja użytkownika: trening domyślnie wyłącza całe te doby przed
+  walidacją/agregacją (`--include-dst-days` przywraca odczyt). Raportuj wykluczenia,
+  zapisuj regułę z modelem i stosuj ją w audycie bez fałszywych przerw MDD.
 - Nie zamieniaj brakującego pomiaru na zero. Zero jest pomiarem.
   Brak prognozy kierunku oznacza brak bilansu i jawny status.
 - Historia pomiarów nie potwierdza aktywności umowy. Nie usuwaj automatycznie
@@ -66,6 +69,7 @@ python -m unittest tests.test_branch_training_tools -v
 python -m unittest tests.test_branch_mapping -v
 python -m unittest tests.test_energy_input_diagnostics -v
 python -m unittest tests.test_energy_hour_audit -v
+python -m unittest tests.test_dst_day_exclusion -v
 ```
 
 Uruchamiaj sprawdzenia odpowiednie do zmiany. Same opisy i skille wymagają
