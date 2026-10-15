@@ -62,8 +62,11 @@ def train_main(argv=None) -> int:
     parser.add_argument("--max-iter", type=int, default=180)
     parser.add_argument("--min-train-rows", type=int, default=200)
     parser.add_argument("--max-train-rows", type=int, default=400_000)
-    parser.add_argument("--models", choices=["auto", "hist_gradient_boosting", "catboost"], default="hist_gradient_boosting",
-                        help="auto porównuje HistGradientBoosting i zainstalowany CatBoost; wybór tylko na walidacji.")
+    parser.add_argument("--models", choices=["auto", "hist_gradient_boosting", "catboost", "lightgbm", "xgboost"], default="hist_gradient_boosting",
+                        help="auto porównuje dostępne HistGradientBoosting, CatBoost, LightGBM i XGBoost na walidacji.")
+    parser.add_argument("--ensemble", action="store_true", help="Porównaj ważony zespół dwóch modeli; wagi dobierane tylko na walidacji.")
+    parser.add_argument("--lightgbm-num-leaves", type=int, default=31)
+    parser.add_argument("--xgboost-max-depth", type=int, default=6)
     parser.add_argument("--learning-rate", type=float, default=0.06)
     parser.add_argument("--max-leaf-nodes", type=int, default=15)
     parser.add_argument("--min-samples-leaf", type=int, default=20)
@@ -94,6 +97,8 @@ def train_main(argv=None) -> int:
                                 max_leaf_nodes=args.max_leaf_nodes, min_samples_leaf=args.min_samples_leaf,
                                 l2_regularization=args.l2_regularization, catboost_depth=args.catboost_depth,
                                 catboost_l2_leaf_reg=args.catboost_l2_leaf_reg, threads=args.threads,
+                                lightgbm_num_leaves=args.lightgbm_num_leaves, xgboost_max_depth=args.xgboost_max_depth,
+                                ensemble=args.ensemble,
                                 min_evaluation_targets=args.min_evaluation_targets,
                                 weather_variants=tuple(args.weather_variants), random_state=args.random_state)
     settings.validate()

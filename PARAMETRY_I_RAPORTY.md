@@ -78,10 +78,11 @@ Wspólna pogoda nie łączy pomiarów tych dwóch oddziałów w jeden bilans.
 Program uczy oddzielnie pobrania i oddania. Oba modele korzystają ze wspólnej
 historii oddziałów, ale wyniki każdego OSD pozostają osobne. Bilans jest różnicą.
 
-`models="auto"` porównuje HistGradientBoosting oraz CatBoost, jeśli jest
-zainstalowany. Bez CatBoost program jawnie informuje o pominięciu tej rodziny.
-`models="hist_gradient_boosting"` albo `models="catboost"` wymusza jedną rodzinę;
-wymuszony CatBoost bez biblioteki kończy się komunikatem instalacyjnym.
+`models="auto"` porównuje HistGradientBoosting oraz zainstalowane CatBoost,
+LightGBM i XGBoost. Instalacja wszystkich: `requirements-production.txt`.
+Brakująca rodzina jest jawnie pomijana. Jej wymuszenie przez `models` wymaga
+odpowiedniej biblioteki; dostępne są także wartości `lightgbm` i `xgboost`.
+Wszystkie rodziny używają CPU i obsługują braki cech bez zastępowania ich zerami.
 
 Warianty pogody:
 
@@ -104,29 +105,41 @@ każdego oddziału wyznaczoną na treningu. Dzięki temu wybór uwzględnia rów
 mniejsze oddziały. Późniejszy test nie uczestniczy w wyborze.
 
 Przy `tune=True` program porównuje trzy konfiguracje każdej rodziny modelu:
-podstawową oraz dwa warianty złożoności/regularyzacji i kroku. Z dwiema rodzinami
-i sześcioma zestawami pogody daje to do 72 prób dla obu kierunków, a następnie
+podstawową oraz dwa warianty złożoności/regularyzacji i kroku. Z czterema rodzinami
+i sześcioma zestawami pogody daje to do 144 prób dla obu kierunków, a następnie
 dopasowania do oceny testowej i modele końcowe. To może potrwać na dużej historii.
 Na pierwsze sprawdzenie plików ustaw `tune=False` i np. `max_iter=80`.
 Do właściwego porównania wróć do większej liczby iteracji i wydziel osobny test.
 
 Nie da się wskazać najlepszego modelu dla PGE bez pomiarów i archiwum pogody.
-CatBoost jest dodatkowym kandydatem, a nie automatyczną gwarancją poprawy.
+Żadna rodzina nie gwarantuje poprawy na każdym zbiorze.
 Raport pokazuje też, gdzie wybrany ML przegrywa ze zwykłym profilem historycznym.
+
+`ensemble=True` dodatkowo porównuje wagi 25/75, 50/50 i 75/25 dwóch modeli.
+Pierwszy jest najlepszym kandydatem, drugi najlepszym z innej rodziny, jeśli
+jest dostępna; inaczej kolejną konfiguracją. Oba są dopasowane na treningu,
+a wagi ocenia wyłącznie walidacja. Zespół zostaje tylko po poprawie jej wyniku.
+Na późniejszym teście i przy końcowym zapisie członkowie są ponownie uczeni
+na odpowiednich wcześniejszych danych. Zespół zwiększa koszt obliczeń.
+Nowe cechy kalendarza to godzina tygodnia, dzień roku oraz dni przed/po świętach.
+Nie używają pomiarów energii z przyszłości ani lagów nieznanych korekt.
 
 ## Parametry w słowniku PARAMETRY
 
 | Parametr | Znaczenie / kiedy zmieniać |
 |---|---|
-| `models` | `auto`, `hist_gradient_boosting` lub `catboost` |
+| `models` | `auto`, `hist_gradient_boosting`, `catboost`, `lightgbm` lub `xgboost` |
+| `ensemble` | porównaj dodatkowo zespół dwóch kandydatów i wybierz go tylko po poprawie na walidacji |
 | `tune` | `True`: trzy konfiguracje rodziny; `False`: jedna konfiguracja podana w kodzie |
-| `max_iter` | liczba iteracji obu rodzin; więcej to dłuższe uczenie i możliwe przeuczenie |
+| `max_iter` | liczba iteracji każdej rodziny; więcej to dłuższe uczenie i możliwe przeuczenie |
 | `learning_rate` | krok w zakresie (0, 1]; mniejszy zwykle wymaga większej liczby iteracji |
 | `max_leaf_nodes` | liczba liści HistGradientBoosting; większa pozwala odtwarzać bardziej złożone zależności |
 | `min_samples_leaf` | minimum obserwacji w liściu HistGradientBoosting; większe wygładza wynik |
-| `l2_regularization` | regularyzacja HistGradientBoosting, nieujemna |
+| `l2_regularization` | nieujemna regularyzacja HistGradientBoosting, LightGBM i XGBoost |
 | `catboost_depth` | głębokość CatBoost, 1–12; 6 jest punktem startowym |
 | `catboost_l2_leaf_reg` | nieujemna regularyzacja CatBoost |
+| `lightgbm_num_leaves` | liście LightGBM, domyślnie 31; tune sprawdza też 15 i 62 |
+| `xgboost_max_depth` | głębokość XGBoost, domyślnie 6; tune sprawdza też 4 i 8 |
 | `threads` | liczba wątków CPU; np. 4 pozwala ograniczyć obciążenie laptopa |
 | `random_state` | ziarno losowości zapisane w manifeście; powtarzalność w tym samym środowisku |
 | `weather_variants` | jawna lista zestawów pogody do porównania |
@@ -168,6 +181,12 @@ pokazuje rzeczywiście wybraną rodzinę, pogodę, parametry oraz kolumny cech.
 | `Pokrycie_okien`, `Pokrycie_pogody` | ile danych rzeczywiście było do oceny i ile historii miało pogodę? |
 | `Kontrola_energii`, `Kontrola_modelu`, `Portfel` | czy są luki, korekty, zmiany MDD lub założenia wymagające sprawdzenia? |
 | `Wykresy`, `Wykres_godzinowy` | wizualne porównanie MAE z profilem i błędów w ciągu doby |
+| `Kazda_godzina` | błąd każdej pary origin/cel/OSD/kierunek, ze znakiem i bezwzględny |
+| `Godziny_lacznie`, `Miesiace_lacznie`, `Wyniki_laczne` | statystyki błędów pojedynczych prognoz wszystkich OSD, bez sumowania ich bilansów |
+| `Miesiace`, `Wykres_miesieczny` | konkretne lata i miesiące, np. 2024-07 i 2025-07 osobno |
+| `Jakosc_pogody_zmienne`, `Jakosc_pogody_wydania` | braki, pokrycie, zakresy, wiek wydań i wyprzedzenie meteo |
+| `Rekomendacje_parametrow`, `Rekomendacje_pogody` | wybrane i zastosowane parametry oraz ranking zestawów pogody z wcześniejszej walidacji |
+| `Walidacja_OSD`, `Blad_a_wiek_pogody` | jakość każdego OSD na walidacji i błąd energii zależny od wieku pogody |
 
 Pełne odpowiedniki tabel są w CSV (separator `;`, przecinek dziesiętny, UTF-8 BOM).
 Excel ogranicza każdą tabelę do 20 000 wierszy; CSV zachowuje całość.
@@ -201,9 +220,13 @@ braku wybranych cech. Lista braków jest w `szczegoly_prognozy.csv`.
 Brak całej wymaganej pogody pozostawia pustą prognozę. Obie sytuacje zwracają
 kod zakończenia 2, aby dało się je zauważyć także przy automatycznym uruchamianiu.
 
-Nowy format artefaktów to 3. Odczyt zachowuje wsparcie dla formatów 1/2.
-Wersja scikit-learn, a przy wybranym CatBoost również jego wersja, musi być
-zgodna z treningiem. Aby korzystać z nowego porównywania modeli, wykonaj trening.
+Nowy format artefaktów to 4. Odczyt zachowuje wsparcie dla formatów 1/2/3.
+Wersje scikit-learn i wszystkich użytych bibliotek modeli, również wewnątrz
+zespołu, muszą być zgodne z treningiem. Nowy wybór wymaga ponownego treningu.
+
+Jakość wejścia pogodowego nie jest trafnością prognozy meteo. Bez niezależnych
+obserwacji nie można policzyć błędu temperatury czy promieniowania. Raport
+oznacza ten brak wprost; zakresy są orientacyjne i wymagają potwierdzenia jednostek.
 
 ## Kontrole danych i granice oceny
 

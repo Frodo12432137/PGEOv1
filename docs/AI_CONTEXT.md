@@ -87,7 +87,7 @@ Zmiany umów wewnątrz sumarycznego MDD mogą pozostać niewidoczne.
 
 ## Ocena i aktualny stan
 
-Implementacja używa `HistGradientBoostingRegressor` i opcjonalnego CatBoost,
+Implementacja porównuje HistGradientBoosting oraz dostępne CatBoost, LightGBM i XGBoost,
 chronologicznej walidacji i oddzielnego testu. `--models auto` porównuje dostępne
 rodziny. Porównuje zestawy pogody i opcjonalnie trzy konfiguracje rodziny przez
 `--tune`. Raportuje oddziały, dokładne horyzonty, zakresy 1–24, 25–48 i 49–72 h,
@@ -215,9 +215,35 @@ Wyniki powstają lokalnie w osobnym podfolderze backtest_bilansu: raport HTML
 bez Internetu, Excel z wykresami i błędami, pełne CSV i status. Wewnętrzna
 ocena i ważność pogody są w trening/, odrębnie od zewnętrznej oceny. Braki
 realizacji nie są zerami; cele DST zostają w prognozach, ale poza oceną.
-Limit procesu to domyślnie 10 godzin, z cache gotowych prób i modelu. To limit,
-nie gwarancja zakończenia treningu; status LIMIT_CZASU / kod 124 jest niekompletny.
+Aktualne ustawienie to brak limitu czasu (`max_runtime_hours=None`), z cache
+gotowych prób i modelu. Opcjonalny limit pozostaje dostępny; status LIMIT_CZASU
+/ kod 124 oznacza wtedy niekompletny wynik.
 Wznowienie SQL używa tego samego snapshotu pogody; resume=False pobiera nowy.
 Źródła, ustawienia, kod i wersje bibliotek identyfikują cache pełnymi skrótami.
 Instrukcja: [BACKTEST.md](../BACKTEST.md). Brak danych PGE/SQL w chmurze;
 syntetyczne wyniki testów programu nie stanowią oceny dokładności biznesowej.
+
+Dalsza prośba użytkownika 15 października 2026: usunąć domyślny limit, dodać
+błędy każdej godziny i każdego OSD, miesiące, jakość pogody, rekomendacje
+parametrów i rozbudować porównanie ML. Launcher nadal dziedziczy parametry
+produkcji, więc nowe rodziny i zespół są wspólne dla obu przepływów.
+
+Auto porównuje HistGradientBoosting, CatBoost, LightGBM i XGBoost, jeżeli są
+zainstalowane. requirements-production.txt obejmuje wszystkie; Linux x86_64
+używa xgboost-cpu, pozostałe platformy xgboost, z metodą hist na CPU. Domyślny
+launcher włącza ensemble: dwa najlepsze modele (preferowana inna rodzina
+drugiego) są porównywane w wagach 25/75, 50/50, 75/25 wyłącznie na walidacji.
+Zespół zostaje tylko po poprawie wyniku; modele są refitowane z prawidłowym
+odcięciem przed wewnętrznym testem i potem na pełnej historii treningowej.
+Do kalendarza dodano godzinę tygodnia, dzień roku oraz dzień przed/po święcie.
+Brak lagów energii pozostaje. Format modelu 4, odczyt 1–4; wersje wszystkich
+członków zespołu są zapisane i sprawdzane. Nowy wybór wymaga retreningu.
+
+Raport rozdziela lata/miesiące (rok_miesiac), dodaje błąd każdej pary
+origin/cel/OSD/kierunek, zbiorcze statystyki błędów, wiek pogody i mapę godzin
+OSD w HTML. Rekomendacje modelu/pogody pochodzą tylko z wcześniejszej
+walidacji i opisują już zastosowane ustawienia; wskazują też porażki z profilem.
+Kontrola pogody mierzy kompletność, wiek wydań i podejrzane zakresy, nie
+meteorologiczną trafność: brak obserwacji meteo. Nie nazywaj tych kontroli
+błędem prognozy temperatury ani dowodem najlepszego modelu na rynku.
+Testy rzeczywistych bibliotek i zespołu: tests.test_model_selection.

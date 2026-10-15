@@ -1,2 +1,5 @@
 -r requirements.txt
 catboost>=1.2,<2
+lightgbm>=4.6,<5
+xgboost-cpu>=3.0,<4; platform_system == "Linux" and platform_machine == "x86_64"
+xgboost>=3.0,<4; platform_system != "Linux" or platform_machine != "x86_64"

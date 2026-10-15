@@ -113,7 +113,7 @@ class TestBacktest(unittest.TestCase):
             b, _ = predict_branches(second, self.weather, self.origin)
         self.assertEqual(len(cache), 4)
         self.assertEqual(first_fits, 8)
-        self.assertEqual(second_fits, 4)  # Obowiązkowe refity wewnętrznego testu i końcowego modelu.
+        self.assertEqual(second_fits, 6)  # Odtworzenie walidacji do raportu + obowiązkowe refity testu i modelu.
         np.testing.assert_array_equal(a.bilans, b.bilans)
 
     def test_full_worker_reports_reusable_model_and_no_external_labels_in_fit(self):
@@ -188,6 +188,15 @@ class TestBacktest(unittest.TestCase):
             status = json.loads((root / "status_backtestu.json").read_text(encoding="utf-8"))
             self.assertEqual(status["etap"], "LIMIT_CZASU")
             self.assertFalse(status["kompletny"])
+
+    def test_no_time_limit_waits_for_success_and_preserves_child_exit_code(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(supervise([sys.executable, "-c", "import time; time.sleep(.15)"], root), 0)
+            self.assertFalse((root / "status_backtestu.json").exists())
+            self.assertEqual(supervise([sys.executable, "-c", "raise SystemExit(2)"], root, None), 2)
+        from uruchom_backtest_bilansow import WYKONANIE
+        self.assertIsNone(WYKONANIE["max_runtime_hours"])
 
     def test_output_lock_prevents_concurrent_cache_writes(self):
         with TemporaryDirectory() as tmp:

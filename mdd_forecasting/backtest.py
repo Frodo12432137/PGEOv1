@@ -98,7 +98,7 @@ def run_signature(configuration: dict) -> str:
     sources = {name: file_digest(Path(configuration[name])) for name in ("energy", "weather_file", "mapping")}
     code = {path.name: file_digest(path) for path in sorted(Path(__file__).parent.glob("*.py"))}
     libraries = {"python": platform.python_version()}
-    for name in ("numpy", "pandas", "scikit-learn", "catboost", "joblib", "openpyxl"):
+    for name in ("numpy", "pandas", "scikit-learn", "catboost", "lightgbm", "xgboost", "xgboost-cpu", "joblib", "openpyxl"):
         try:
             libraries[name] = version(name)
         except PackageNotFoundError:

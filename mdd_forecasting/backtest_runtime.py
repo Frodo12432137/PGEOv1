@@ -1,4 +1,4 @@
-"""Uruchomienie backtestu z limitem czasu, także z przycisku VS Code na Windows."""
+"""Uruchomienie backtestu, domyślnie bez limitu czasu, także na Windows."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -46,21 +46,24 @@ def exclusive_run(directory: Path):
                 fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def supervise(command: list[str], directory: Path, timeout_seconds: float) -> int:
-    """Twardy limit obejmuje odczyt, SQL, strojenie, refity, prognozy i raporty."""
-    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+def supervise(command: list[str], directory: Path, timeout_seconds: float | None = None) -> int:
+    """None oznacza pracę do końca. Opcjonalny limit obejmuje cały proces."""
+    if timeout_seconds is not None and (not math.isfinite(timeout_seconds) or timeout_seconds <= 0):
         raise ValueError("Limit czasu musi być dodatnią, skończoną liczbą.")
     started = time.monotonic()
     process = subprocess.Popen(command, cwd=ROOT)
     timed_out = False
     try:
         while True:
-            remaining = timeout_seconds - (time.monotonic() - started)
-            if remaining <= 0:
+            completed = process.poll()
+            if completed is not None:
+                return completed
+            remaining = None if timeout_seconds is None else timeout_seconds - (time.monotonic() - started)
+            if remaining is not None and remaining <= 0:
                 timed_out = True
                 break
             try:
-                return process.wait(timeout=min(5, remaining))
+                return process.wait(timeout=5 if remaining is None else min(5, remaining))
             except subprocess.TimeoutExpired:
                 pass
     finally:
@@ -109,8 +112,9 @@ def configured_backtest(*, energy: str, weather_file: str, mapping_file: str, ou
         for path in (energy_path, weather_path, mapping_path):
             if not path.is_file():
                 raise FileNotFoundError(f"Nie znaleziono pliku: {path}")
-        hours = float(runtime.get("max_runtime_hours", 10))
-        if not math.isfinite(hours) or hours <= 0:
+        value = runtime.get("max_runtime_hours")
+        hours = None if value is None else float(value)
+        if hours is not None and (not math.isfinite(hours) or hours <= 0):
             raise ValueError("max_runtime_hours musi być dodatnią, skończoną liczbą.")
         output = Path(_path(output_dir))
         output.mkdir(parents=True, exist_ok=True)
@@ -127,9 +131,10 @@ def configured_backtest(*, energy: str, weather_file: str, mapping_file: str, ou
             config_path = run / "ustawienia_backtestu.json"
             atomic_json(config_path, configuration)
             (output / "OSTATNI_BACKTEST.txt").write_text(str(run.resolve()), encoding="utf-8")
-            print(f"Backtest: {run}\nLimit całego zadania: {hours:g} h. Ustawienia modelu pozostają bez zmian.", flush=True)
+            timing = "Bez limitu czasu — obliczenia działają do zakończenia." if hours is None else f"Limit całego zadania: {hours:g} h."
+            print(f"Backtest: {run}\n{timing}", flush=True)
             return supervise([sys.executable, "-u", "-m", "mdd_forecasting.backtest", "--config", str(config_path)],
-                             run, hours * 3600)
+                             run, None if hours is None else hours * 3600)
     finally:
         if root is not None:
             root.destroy()

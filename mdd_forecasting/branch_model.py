@@ -8,6 +8,7 @@ import json
 import hashlib
 import platform
 from importlib.util import find_spec
+from importlib.metadata import version, PackageNotFoundError
 from time import perf_counter
 
 import numpy as np
@@ -36,7 +37,8 @@ VARIANTS = {
     "pogoda_pelna": list(WEATHER_GROUPS),
 }
 CALENDAR_COLUMNS = ["godzina", "dzien_tygodnia", "miesiac", "weekend", "swieto_PL",
-                    "godzina_sin", "godzina_cos", "rok_sin", "rok_cos", "horyzont_h"]
+                    "godzina_sin", "godzina_cos", "rok_sin", "rok_cos", "horyzont_h",
+                    "godzina_tygodnia", "dzien_roku", "przed_swietem", "po_swiecie"]
 DIRECTIONS = ("POBRANIE", "ODDANIE")
 
 
@@ -61,6 +63,9 @@ class TrainingSettings:
     l2_regularization: float = 2.0
     catboost_depth: int = 6
     catboost_l2_leaf_reg: float = 5.0
+    lightgbm_num_leaves: int = 31
+    xgboost_max_depth: int = 6
+    ensemble: bool = False
     threads: int = 4
     min_evaluation_targets: int = 24
     weather_variants: tuple[str, ...] = tuple(VARIANTS)
@@ -72,14 +77,16 @@ class TrainingSettings:
             raise ValueError("Odstępy czasu, rozmiary okien i liczba iteracji muszą być dodatnie.")
         if self.max_train_rows < self.min_train_rows or self.label_delay_hours < 0:
             raise ValueError("Niepoprawny limit danych lub opóźnienie pomiarów.")
-        if self.model_backend not in {"auto", "hist_gradient_boosting", "catboost"}:
-            raise ValueError("Model: auto, hist_gradient_boosting albo catboost.")
+        if self.model_backend not in {"auto", "hist_gradient_boosting", "catboost", "lightgbm", "xgboost"}:
+            raise ValueError("Model: auto, hist_gradient_boosting, catboost, lightgbm albo xgboost.")
         if not np.isfinite(self.learning_rate) or not 0 < self.learning_rate <= 1:
             raise ValueError("learning_rate musi należeć do (0, 1].")
         if self.max_leaf_nodes < 2 or min(self.min_samples_leaf, self.threads, self.min_evaluation_targets) < 1:
             raise ValueError("Liczba liści, obserwacji, wątków i celów oceny musi być dodatnia.")
         if not 1 <= self.catboost_depth <= 12:
             raise ValueError("Głębokość CatBoost musi należeć do zakresu 1–12.")
+        if not 2 <= self.lightgbm_num_leaves <= 1024 or not 1 <= self.xgboost_max_depth <= 16:
+            raise ValueError("LightGBM: 2–1024 liści; XGBoost: głębokość 1–16.")
         if any(not np.isfinite(v) or v < 0 for v in [self.l2_regularization, self.catboost_l2_leaf_reg]):
             raise ValueError("Regularyzacja musi być nieujemna i skończona.")
         if self.importance_rows < 0 or not self.weather_variants or set(self.weather_variants) - set(VARIANTS):
@@ -111,8 +118,13 @@ def feature_frame(frame: pd.DataFrame, branch_codes: list[str], timezone_name: s
     out["dzien_tygodnia"] = ts.dt.dayofweek.astype(float)
     out["miesiac"] = ts.dt.month.astype(float)
     out["weekend"] = ts.dt.dayofweek.ge(5).astype(float)
-    holidays = set().union(*[_polish_holidays(int(y)) for y in ts.dt.year.unique()])
+    holidays = set().union(*[_polish_holidays(y) for y in range(int(ts.dt.year.min()) - 1, int(ts.dt.year.max()) + 2)])
     out["swieto_PL"] = ts.dt.date.isin(holidays).astype(float)
+    out["godzina_tygodnia"] = ts.dt.dayofweek * 24 + ts.dt.hour
+    out["dzien_roku"] = ts.dt.dayofyear
+    dates = ts.dt.tz_localize(None).dt.normalize()
+    out["przed_swietem"] = (dates + pd.Timedelta(days=1)).dt.date.isin(holidays).astype(float)
+    out["po_swiecie"] = (dates - pd.Timedelta(days=1)).dt.date.isin(holidays).astype(float)
     out["godzina_sin"] = np.sin(2 * np.pi * out["godzina"] / 24)
     out["godzina_cos"] = np.cos(2 * np.pi * out["godzina"] / 24)
     out["rok_sin"] = np.sin(2 * np.pi * ts.dt.dayofyear / 365.25)
@@ -137,9 +149,30 @@ def model_columns(variant: str, branch_codes: list[str], available: set[str]) ->
     return [*columns, *weather, *(["wiek_prognozy_h"] if weather else [])]
 
 
+class ValidationEnsemble:
+    """Wagi wybrane na walidacji; członkowie są refitowani na tych samych foldach."""
+
+    def __init__(self, settings: TrainingSettings, members: list[dict], weights: list[float]):
+        self.settings, self.members, self.weights = settings, members, weights
+
+    def fit(self, features, target):
+        self.models = []
+        for member in self.members:
+            model = _new_model(self.settings, member["parameters"])
+            model.fit(features[member["columns"]], target)
+            self.models.append(model)
+        return self
+
+    def predict(self, features):
+        return sum(weight * _predict(model, features, member["columns"])
+                   for weight, member, model in zip(self.weights, self.members, self.models))
+
+
 def _new_model(settings: TrainingSettings, parameters: dict):
     parameters = parameters.copy()
     backend = parameters.pop("backend", "hist_gradient_boosting")
+    if backend == "ensemble":
+        return ValidationEnsemble(settings, **parameters)
     if backend == "catboost":
         try:
             from catboost import CatBoostRegressor
@@ -148,6 +181,21 @@ def _new_model(settings: TrainingSettings, parameters: dict):
         return CatBoostRegressor(iterations=settings.max_iter, loss_function="RMSE",
                                  random_seed=settings.random_state, thread_count=settings.threads,
                                  allow_writing_files=False, verbose=False, **parameters)
+    if backend == "lightgbm":
+        try:
+            from lightgbm import LGBMRegressor
+        except ImportError as exc:
+            raise RuntimeError("Brak LightGBM. Zainstaluj requirements-production.txt.") from exc
+        return LGBMRegressor(n_estimators=settings.max_iter, objective="regression", verbosity=-1,
+                             random_state=settings.random_state, n_jobs=settings.threads,
+                             deterministic=True, force_col_wise=True, **parameters)
+    if backend == "xgboost":
+        try:
+            from xgboost import XGBRegressor
+        except ImportError as exc:
+            raise RuntimeError("Brak XGBoost. Zainstaluj requirements-production.txt.") from exc
+        return XGBRegressor(n_estimators=settings.max_iter, objective="reg:squarederror", tree_method="hist",
+                            random_state=settings.random_state, n_jobs=settings.threads, **parameters)
     from sklearn.ensemble import HistGradientBoostingRegressor
     # Dobór parametrów ma osobne chronologiczne okno. Brak losowej walidacji fit().
     return HistGradientBoostingRegressor(
@@ -161,10 +209,11 @@ def candidate_parameters(settings: TrainingSettings) -> list[dict]:
     backends = [settings.model_backend]
     if settings.model_backend == "auto":
         backends = ["hist_gradient_boosting"]
-        if find_spec("catboost") is not None:
-            backends.append("catboost")
-        else:
-            print("CatBoost nie jest zainstalowany: porównuję warianty HistGradientBoosting. Opcjonalna instalacja: requirements-production.txt", flush=True)
+        for backend in ["catboost", "lightgbm", "xgboost"]:
+            if find_spec(backend) is not None:
+                backends.append(backend)
+            else:
+                print(f"Brak {backend}: rodzina poza porównaniem. Instalacja: requirements-production.txt", flush=True)
     candidates = []
     for backend in backends:
         if backend == "hist_gradient_boosting":
@@ -177,13 +226,33 @@ def candidate_parameters(settings: TrainingSettings) -> list[dict]:
                                     "max_leaf_nodes": max(2, settings.max_leaf_nodes // 2),
                                     "l2_regularization": settings.l2_regularization * 2},
                                    {**base, "max_leaf_nodes": settings.max_leaf_nodes * 2 + 1}])
-        else:
+        elif backend == "catboost":
             base = {"backend": backend, "learning_rate": settings.learning_rate,
                     "depth": settings.catboost_depth, "l2_leaf_reg": settings.catboost_l2_leaf_reg}
             candidates.append(base)
             if settings.tune:
                 candidates.extend([{**base, "depth": max(1, settings.catboost_depth - 2)},
                                    {**base, "depth": min(12, settings.catboost_depth + 2),
+                                    "learning_rate": settings.learning_rate / 2}])
+        elif backend == "lightgbm":
+            base = {"backend": backend, "learning_rate": settings.learning_rate,
+                    "num_leaves": settings.lightgbm_num_leaves, "min_child_samples": settings.min_samples_leaf,
+                    "reg_lambda": settings.l2_regularization}
+            candidates.append(base)
+            if settings.tune:
+                candidates.extend([{**base, "num_leaves": max(2, settings.lightgbm_num_leaves // 2),
+                                    "reg_lambda": settings.l2_regularization * 2},
+                                   {**base, "num_leaves": min(1024, settings.lightgbm_num_leaves * 2),
+                                    "learning_rate": settings.learning_rate / 2}])
+        else:
+            base = {"backend": backend, "learning_rate": settings.learning_rate,
+                    "max_depth": settings.xgboost_max_depth, "min_child_weight": 10,
+                    "reg_lambda": settings.l2_regularization}
+            candidates.append(base)
+            if settings.tune:
+                candidates.extend([{**base, "max_depth": max(1, settings.xgboost_max_depth - 2),
+                                    "reg_lambda": settings.l2_regularization * 2},
+                                   {**base, "max_depth": min(16, settings.xgboost_max_depth + 2),
                                     "learning_rate": settings.learning_rate / 2}])
     return candidates
 
@@ -271,6 +340,39 @@ def _cap(frame: pd.DataFrame, maximum: int) -> pd.DataFrame:
     return frame.sort_values(["target_time_utc", "forecast_origin_utc"]).tail(maximum)
 
 
+def _select_ensemble(settings, specs, features, fit_rows, validation, scales, choice, prediction, notify):
+    """Porównaj blend wyłącznie z wcześniejszą walidacją; holdout nie jest argumentem."""
+    ordered = sorted(specs, key=lambda spec: spec["score"])
+    first = ordered[0]
+    others = ordered[1:]
+    different_family = [spec for spec in others if spec["parameters"]["backend"] != first["parameters"]["backend"]]
+    second = (different_family or others)[0]
+    members = [{key: spec[key] for key in ["parameters", "columns", "wariant"]} for spec in [first, second]]
+    started = perf_counter()
+    notify("WALIDACJA_ZESPOLU", modele=[member["parameters"]["backend"] for member in members])
+    predictions = []
+    for member in members:
+        model = _new_model(settings, member["parameters"])
+        model.fit(features.loc[fit_rows.index, member["columns"]], fit_rows["wartosc_rzeczywista"])
+        predictions.append(_predict(model, features.loc[validation.index], member["columns"]))
+    columns = list(dict.fromkeys(column for member in members for column in member["columns"]))
+    best_score = first["score"]
+    prediction = predictions[0]
+    rows = []
+    for weight in [.25, .5, .75]:
+        combined = weight * predictions[0] + (1 - weight) * predictions[1]
+        score = _macro_error(validation, combined, scales)
+        parameters = {"backend": "ensemble", "members": members, "weights": [weight, 1 - weight]}
+        rows.append({"kierunek": fit_rows.kierunek_energii_norm.iloc[0], "wariant": "zespol", **parameters,
+                     "walidacja_macro_mae_norm": score,
+                     "walidacja_mae": float(np.abs(combined - validation.wartosc_rzeczywista.to_numpy()).mean()),
+                     "liczba_cech": len(columns), "liczba_wierszy": len(validation), "czas_s": perf_counter() - started})
+        if score < best_score:
+            best_score, prediction = score, combined
+            choice = {"wariant": "zespol", "parameters": parameters, "columns": columns}
+    return choice, prediction, best_score, rows
+
+
 def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: TrainingSettings,
                         *, trial_cache: dict | None = None, progress=None):
     settings.validate()
@@ -301,10 +403,10 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
         if progress is not None:
             progress({"etap": stage, **data})
 
-    notify("PRZYGOTOWANIE_UCZENIA", maks_prob=len(DIRECTIONS) * len(grid) * len(settings.weather_variants),
+    notify("PRZYGOTOWANIE_UCZENIA", maks_prob=len(DIRECTIONS) * (len(grid) * len(settings.weather_variants) + (3 if settings.ensemble else 0)),
            wiersze=len(data))
     chosen = {}
-    comparisons, importance_rows, coverage_rows = [], [], []
+    comparisons, importance_rows, coverage_rows, recommendations, validation_rows = [], [], [], [], []
     test_predictions = test.copy()
     test_predictions["wartosc_przewidywana"] = np.nan
     test_predictions["wartosc_bazowa"] = np.nan
@@ -325,6 +427,8 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
                 raise ValueError(f"Brak wystarczającego pokrycia: {stage}, {direction}, oddziały {insufficient.to_dict()}. Minimum: {minimum} unikalnych godzin; nie zakładamy zera.")
         scales = fit_rows.groupby("oddzial_code")["wartosc_rzeczywista"].mean()
         best_score = float("inf")
+        best_prediction = None
+        candidate_specs = []
         used_specs = set()
         for variant in settings.weather_variants:
             cols = model_columns(variant, branches, available)
@@ -335,6 +439,7 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
                 started = perf_counter()
                 cache_key = hashlib.sha256(json.dumps([direction, variant, cols, parameters], sort_keys=True).encode()).hexdigest()
                 cached = trial_cache.get(cache_key) if trial_cache is not None else None
+                prediction = None
                 notify("STROJENIE", kierunek=direction, wariant=variant, parametry=parameters,
                        gotowe_proby=len(comparisons), z_cache=cached is not None)
                 if cached is not None:
@@ -359,11 +464,49 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
                     if trial_cache is not None:
                         trial_cache[cache_key] = dict(record)
                 comparisons.append(record)
+                candidate_specs.append({"score": score, "wariant": variant, "columns": cols, "parameters": parameters})
                 notify("PROBA_GOTOWA", gotowe_proby=len(comparisons), wynik=record, z_cache=cached is not None)
                 if score < best_score:
                     best_score = score
+                    best_prediction = prediction
                     chosen[direction] = {"wariant": variant, "columns": cols, "parameters": parameters}
         choice = chosen[direction]
+        if settings.ensemble and len(candidate_specs) >= 2:
+            choice, best_prediction, best_score, blend_rows = _select_ensemble(
+                settings, candidate_specs, features, fit_rows, val, scales, choice, best_prediction, notify)
+            comparisons.extend(blend_rows)
+            notify("ZESPOL_POROWNANY", kierunek=direction, gotowe_proby=len(comparisons),
+                   wybrany_zespol=choice["parameters"]["backend"] == "ensemble")
+            chosen[direction] = choice
+        if best_prediction is None:
+            # Przy wznowieniu wyniki prób są zapisane, a duże modele kandydatów nie.
+            notify("ODTWORZENIE_WALIDACJI", kierunek=direction)
+            model = _new_model(settings, choice["parameters"])
+            model.fit(features.loc[fit_rows.index, choice["columns"]], fit_rows.wartosc_rzeczywista)
+            best_prediction = _predict(model, features.loc[val.index], choice["columns"])
+        baseline_validation = profile_predictions(val, _profile(fit_rows, settings.timezone), settings.timezone)
+        baseline_mask = np.isfinite(baseline_validation)
+        baseline_score = _macro_error(val.loc[baseline_mask], baseline_validation[baseline_mask], scales) if baseline_mask.any() else np.nan
+        paired_score = _macro_error(val.loc[baseline_mask], best_prediction[baseline_mask], scales) if baseline_mask.any() else np.nan
+        validation_frame = val[["oddzial_code", "target_time_utc", "wartosc_rzeczywista"]].rename(columns={"wartosc_rzeczywista": "realizacja"}).copy()
+        validation_frame["prognoza"], validation_frame["profil"] = best_prediction, baseline_validation
+        from .branch_diagnostics import aggregate_errors
+        per_branch = aggregate_errors(validation_frame, ["oddzial_code"])
+        per_branch["kierunek"] = direction
+        validation_rows.append(per_branch)
+        recommendations.append({
+            "kierunek": direction, "model": choice["parameters"]["backend"], "wariant_pogody": choice["wariant"],
+            "parametry": json.dumps(choice["parameters"], ensure_ascii=False),
+            "liczba_iteracji": settings.max_iter, "liczba_cech": len(choice["columns"]),
+            "walidacja_macro_mae_norm": best_score, "profil_macro_mae_norm_wspolne": baseline_score,
+            "ml_macro_mae_norm_wspolne": paired_score, "pokrycie_profilu_walidacja": float(baseline_mask.mean()),
+            "poprawa_vs_profil_walidacja": 1 - paired_score / baseline_score if baseline_score > 0 else np.nan,
+            "walidacja_od_UTC": str(val.target_time_utc.min()), "walidacja_do_UTC": str(val.target_time_utc.max()),
+            "liczba_kandydatow": sum(row["kierunek"] == direction for row in comparisons),
+            "zalecenie": "WYBRANY_NA_WALIDACJI" if paired_score < baseline_score else "SPRAWDZ_ML_NIE_WYGRAL_Z_PROFILEM_LUB_BRAK_POROWNANIA",
+            "zasada": "Parametry zastosowane automatycznie; zewnętrzny backtest nie uczestniczy w wyborze.",
+        })
+        choice["validation_score"] = best_score
         print(f"{direction}: wybrano {choice['parameters']['backend']} / {choice['wariant']}, błąd walidacji={best_score:.5f}. Oceniam na osobnym teście.", flush=True)
         # Holdout nie bierze udziału w wyborze wariantu/parametrów.
         before_test = data.loc[data["target_time_utc"].lt(test_start - embargo)
@@ -417,7 +560,7 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
     branch_table = energy[["oddzial_code", "punkt"]].drop_duplicates()
     if branch_table["oddzial_code"].duplicated().any():
         raise ValueError("Oddział ma kilka punktów pogodowych.")
-    bundle = {"format_version": 3, "settings": asdict(settings), "branches": branch_table,
+    bundle = {"format_version": 4, "settings": asdict(settings), "branches": branch_table,
               "models": chosen, "training_target_max_utc": str(data["target_time_utc"].max()),
               "created_at_utc": datetime.now(timezone.utc).isoformat(),
               "baseline_profile": _profile(data, settings.timezone)}
@@ -439,11 +582,31 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
         "waznosc_pogody": pd.DataFrame(importance_rows, columns=["kierunek", "grupa_pogody", "wzrost_macro_mae_norm", "odchylenie", "n", "uzyta_w_modelu"]),
         "metryki_test": pd.concat(direction_metrics, ignore_index=True),
         "backtest_bilans": balance, "kontrola_modelu": quality, "pokrycie_okien": pd.DataFrame(coverage_rows),
+        "rekomendacje_modelu": pd.DataFrame(recommendations),
+        "walidacja_osd": pd.concat(validation_rows, ignore_index=True),
     }
     from .branch_diagnostics import diagnostic_tables, weather_coverage
     reports.update(diagnostic_tables(test_predictions, balance, settings.timezone))
     reports["pokrycie_pogody"] = weather_coverage(joined)
+    from .weather_quality import weather_quality_tables, weather_variant_recommendations
+    reports.update(weather_quality_tables(joined, settings.timezone))
+    reports["rekomendacje_pogody"] = weather_variant_recommendations(comparison)
     return bundle, reports
+
+
+def model_backends(parameters: dict) -> set[str]:
+    if parameters.get("backend") == "ensemble":
+        return set().union(*(model_backends(member["parameters"]) for member in parameters["members"]))
+    return {parameters.get("backend", "hist_gradient_boosting")}
+
+
+def backend_version(name: str) -> str:
+    try:
+        return version(name)
+    except PackageNotFoundError:
+        if name == "xgboost":
+            return version("xgboost-cpu")
+        raise
 
 
 def save_bundle(bundle: dict, directory: str | Path):
@@ -453,9 +616,9 @@ def save_bundle(bundle: dict, directory: str | Path):
     target.mkdir(parents=True, exist_ok=True)
     bundle["versions"] = {"python": platform.python_version(), "sklearn": sklearn.__version__,
                            "numpy": np.__version__, "pandas": pd.__version__, "joblib": joblib.__version__}
-    if any(spec["parameters"].get("backend") == "catboost" for spec in bundle["models"].values()):
-        import catboost
-        bundle["versions"]["catboost"] = catboost.__version__
+    backends = set().union(*(model_backends(spec["parameters"]) for spec in bundle["models"].values()))
+    for backend in backends & {"catboost", "lightgbm", "xgboost"}:
+        bundle["versions"][backend] = backend_version(backend)
     temporary = target / "modele_oddzialow.joblib.tmp"
     joblib.dump(bundle, temporary)
     temporary.replace(target / "modele_oddzialow.joblib")
@@ -471,14 +634,13 @@ def load_bundle(directory: str | Path) -> dict:
     import joblib
     import sklearn
     bundle = joblib.load(Path(directory) / "modele_oddzialow.joblib")
-    if bundle.get("format_version") not in {1, 2, 3}:
+    if bundle.get("format_version") not in {1, 2, 3, 4}:
         raise ValueError("Nieobsługiwana wersja plików modelu.")
     if bundle.get("versions", {}).get("sklearn") != sklearn.__version__:
         raise ValueError("Wersja scikit-learn różni się od wersji treningu. Użyj wersji z manifestu albo wykonaj trening ponownie.")
-    if "catboost" in bundle.get("versions", {}):
-        import catboost
-        if bundle["versions"]["catboost"] != catboost.__version__:
-            raise ValueError("Wersja CatBoost różni się od wersji treningu. Użyj wersji z manifestu.")
+    for backend in {"catboost", "lightgbm", "xgboost"} & bundle.get("versions", {}).keys():
+        if bundle["versions"][backend] != backend_version(backend):
+            raise ValueError(f"Wersja {backend} różni się od wersji treningu. Użyj wersji z manifestu.")
     return bundle
 
 

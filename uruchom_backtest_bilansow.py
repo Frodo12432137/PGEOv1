@@ -24,7 +24,7 @@ PARAMETRY = {**PARAMETRY_TRENINGU}
 # Nie zwiększaj dokładności przez oglądanie i ponowne strojenie tego samego backtestu.
 
 WYKONANIE = {
-    "max_runtime_hours": 10,  # Limit całego procesu; po nim zatrzymanie i status NIEKOMPLETNY.
+    "max_runtime_hours": None,  # Bez limitu: działa do końca. Opcjonalnie wpisz liczbę godzin.
     "resume": True,  # Te same dane/ustawienia: użyj gotowych prób strojenia lub gotowego modelu.
     "report_every_origins": 10,  # Raport częściowy po pierwszej prognozie, potem co tyle przebiegów.
     "max_html_origins": 200,  # Limit wykresów HTML; pełne wyniki zawsze w CSV.

@@ -32,14 +32,15 @@ Przy działającym firmowym SQL zastąp `--weather pogoda_historia.csv` przez
 `--weather-sql mdd_forecasting/sql/pogoda_bilans_historia.sql`.
 GUI: `python uruchom_trening_bilansow.py` lub strzałka VS Code.
 Opcje sprawdź przez `python -m mdd_forecasting.train --help`.
-`--tune` porównuje trzy konfiguracje rodziny, `--models auto` dołącza zainstalowany
-CatBoost; `--skip-importance` pomija
+`--tune` porównuje trzy konfiguracje rodziny, `--models auto` dołącza zainstalowane
+CatBoost/LightGBM/XGBoost; `--ensemble` porównuje zespół dwóch modeli,
+wybierany tylko po poprawie walidacji. `--skip-importance` pomija
 obliczanie ważności. Dobierz koszt obliczeń do zadania użytkownika.
 
 Osobny zewnętrzny backtest uruchamia `python uruchom_backtest_bilansow.py`
 lub strzałka VS Code. Przeczytaj [BACKTEST.md](../../../BACKTEST.md).
-Przejmuje parametry produkcyjnego launchera, ma osobne daty i limit całego
-procesu. Trenuje ten sam model raz na wcześniejszej historii, potem symuluje
+Przejmuje parametry produkcyjnego launchera, ma osobne daty i domyślnie działa
+bez limitu (`max_runtime_hours=None`). Trenuje ten sam model raz na wcześniejszej historii, potem symuluje
 origins bez kolejnych fitów. BACKTEST_OD/DO to daty uruchomień, a cele sięgają
 o pełny horyzont dalej. Nie przenoś realizacji zewnętrznego testu do uczenia,
 profilu ani oceny portfela treningowego. Sprawdź `tests.test_backtest`.
@@ -51,7 +52,7 @@ rzeczywistych danych i pomiaru na komputerze użytkownika.
 
 ## Zachowaj poprawną ocenę
 
-`branch_model.py` uczy dwa modele HistGradientBoosting lub CatBoost, po jednym
+`branch_model.py` uczy dwa modele gradientowe lub ich zespoły, po jednym
 dla pobrania i oddania, na wspólnych danych oddziałów. Kod oddziału jest cechą;
 nie mieszaj wyników OSD w jeden bilans. Treningowy horyzont domyślny to 72 h,
 a symulowane origins są domyślnie co 12 h.
@@ -85,3 +86,7 @@ artefaktów, nie jako domyślny commit danych. Zapisz zakres historii, ustawieni
 wybrany wariant i wersje bibliotek. Predykcja wymaga zgodnego scikit-learn.
 Zmiany modeli/cech/zapisu sprawdź w `tests.test_branch_forecasting`, a zmiany
 współdzielonych elementów również w `tests.test_mdd_forecasting`.
+Rozszerzone rodziny, zespół i rekomendacje sprawdź w `tests.test_model_selection`.
+Rekomendacje dotyczą wcześniejszej walidacji i są już zastosowane. Nie dobieraj
+nowych parametrów na backteście. Kontrola wejść pogodowych nie mierzy trafności
+prognozy meteo bez niezależnych obserwacji.

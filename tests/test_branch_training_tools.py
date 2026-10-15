@@ -185,7 +185,8 @@ class TestTrainingTools(unittest.TestCase):
                            max_iter=3, catboost_depth=3, weather_variants=("temperatura_slonce",))
         with threadpool_limits(limits=2):
             bundle, reports = train_branch_models(self.energy, self.weather, settings)
-        self.assertEqual(set(reports["porownanie_wariantow"]["backend"]), {"catboost", "hist_gradient_boosting"})
+        expected = {"hist_gradient_boosting", *[name for name in ["catboost", "lightgbm", "xgboost"] if find_spec(name)]}
+        self.assertEqual(set(reports["porownanie_wariantow"]["backend"]), expected)
         # Wymuszona rodzina sprawdza też zapis i odczyt CatBoost, niezależnie od zwycięzcy auto.
         with threadpool_limits(limits=2):
             bundle, _ = train_branch_models(self.energy, self.weather, replace(settings, model_backend="catboost", tune=False))

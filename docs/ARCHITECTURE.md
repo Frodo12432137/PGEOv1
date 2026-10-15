@@ -26,7 +26,7 @@ flowchart TD
 |---|---|
 | [`uruchom_trening_bilansow.py`](../uruchom_trening_bilansow.py) | wejście przez strzałkę VS Code; wybór plików/folderu |
 | [`uruchom_prognoze_bilansow.py`](../uruchom_prognoze_bilansow.py) | powtarzalna predykcja z zapisanego modelu |
-| [`uruchom_backtest_bilansow.py`](../uruchom_backtest_bilansow.py) | strzałka VS Code: daty, te same parametry modelu, limit czasu |
+| [`uruchom_backtest_bilansow.py`](../uruchom_backtest_bilansow.py) | strzałka VS Code: daty, te same parametry modelu, domyślnie bez limitu czasu |
 | [`backtest.py`](../mdd_forecasting/backtest.py) | oddzielenie historii treningowej, produkcyjny trening, zamrożone prognozy późniejszych origins, cache i postęp |
 | [`backtest_runtime.py`](../mdd_forecasting/backtest_runtime.py) | nadzorowany proces z limitem czasu i blokadą folderu, także na Windows |
 | [`backtest_report.py`](../mdd_forecasting/backtest_report.py) | ocena zewnętrzna, CSV, Excel oraz samodzielny interaktywny HTML |
@@ -39,6 +39,7 @@ flowchart TD
 | [`pogoda_bilans_historia.sql`](../mdd_forecasting/sql/pogoda_bilans_historia.sql) | godzinowe archiwum pogody z pięcioma parametrami |
 | [`branch_model.py`](../mdd_forecasting/branch_model.py) | cechy, dwa regresory, dobór wariantów, test, serializacja i prognoza |
 | [`branch_diagnostics.py`](../mdd_forecasting/branch_diagnostics.py) | diagnostyka odłożonego testu, porównanie z profilem, raport Excel i wykresy |
+| [`weather_quality.py`](../mdd_forecasting/weather_quality.py) | kompletność, zakresy i wiek pogody; rekomendacje wariantów wyłącznie z walidacji |
 | [`portfolio.py`](../mdd_forecasting/portfolio.py) | obecność MDD, przerwy, zmiany zestawów i statusy portfela |
 | [`oddzial_miasto.csv`](../mdd_forecasting/config/oddzial_miasto.csv) | przypisanie oddziałów do punktów pogody |
 
@@ -65,15 +66,18 @@ obsługują starszy przepływ MDD. Opisuje go [README pakietu](../mdd_forecastin
   `future_requests()` zaczyna od następnej pełnej godziny i odlicza godziny w UTC.
 - `train_branch_models()` dobiera modele i zwraca raporty. `save_bundle()`
   zapisuje `modele_oddzialow.joblib` oraz `manifest_oddzialy.json`.
-  Format zapisu to obecnie 3; odczyt dopuszcza 1, 2 i 3.
+  Format zapisu to obecnie 4; odczyt dopuszcza 1, 2, 3 i 4.
   Opcjonalne `trial_cache` i `progress` służą wznowieniu gotowych wyników
   walidacji w backteście; nie zmieniają grida, wyboru ani obowiązkowych refitów.
   Cache jest izolowany skrótem pełnych wejść, kodu, parametrów i wersji, a próby
   są związane z konkretnym snapshotem pogody. Nie przekazuj obcego cache.
+  `auto` obejmuje HistGradientBoosting i dostępne CatBoost/LightGBM/XGBoost.
+  Opcjonalny `ValidationEnsemble` dopasowuje dwa modele i używa wag wybranych
+  wyłącznie na wcześniejszej walidacji. Refit członków zachowuje te same odcięcia.
 - `load_bundle()` wymaga tej samej wersji scikit-learn co trening.
   `predict_branches()` wymaga origin po końcu historii treningowej i horyzontu
-  nie większego niż treningowy. Nie wykonuje uczenia. Wybrany CatBoost wymaga
-  tej samej wersji CatBoost co trening.
+  nie większego niż treningowy. Nie wykonuje uczenia. Wszystkie użyte biblioteki,
+  również wewnątrz zespołu, wymagają zgodnej wersji zapisanej w manifeście.
 - `analyze_portfolio()` operuje na pomiarach wybranych po korektach.
   `ignored_dates` wyłącza celowo pominięte doby z liczenia przerw i opóźnień MDD.
   `annotate_portfolio()` porównuje aktualny eksport z portfelem treningowym,
@@ -90,7 +94,7 @@ Predykcja zapisuje `prognoza_bilansu_72h.csv`, `szczegoly_prognozy.csv`
 i dostępne raporty portfela. Liczba bilansów wynosi `liczba oddziałów modelu × horyzont`.
 Przy ośmiu oddziałach i 72 h to 576, także w okresie zmiany czasu.
 Trening zapisuje też `pominiete_dni_zmiany_czasu.csv` i arkusz `Pominiete_doby`;
-format modelu pozostaje 3, z flagą `input_schema.exclude_dst_days`.
+format modelu 4 zachowuje flagę `input_schema.exclude_dst_days`.
 
 CSV: separator `;`, przecinek dziesiętny, UTF-8 BOM.
 `status` opisuje dostępność prognozy, `status_portfela` opisuje kontrolę MDD.
@@ -110,6 +114,7 @@ Kod 0 nie jest potwierdzeniem aktualnych umów ani dokładności prognozy.
 | [`test_energy_input_diagnostics.py`](../tests/test_energy_input_diagnostics.py) | oryginalne F/H i przyczyny błędów, 25 godzin jesienią, rozpoznawanie SQL/eksportu pogody |
 | [`test_dst_day_exclusion.py`](../tests/test_dst_day_exclusion.py) | całe doby 23/25 h, walidacja zwykłych dni, UTC bez kompresji, audyt bez fałszywych przerw, zapis reguły i trening bez wyłączonych celów w teście |
 | [`test_backtest.py`](../tests/test_backtest.py) | zgodność prognoz z produkcją, chronologia, embargo, odcięcie przyszłej energii/pogody, cache, raporty i twardy limit czasu |
+| [`test_model_selection.py`](../tests/test_model_selection.py) | rzeczywisty LightGBM/XGBoost i zapis zespołu, wybór wag na walidacji, miesiące z latami, błędy godzinowe i kontrola pogody |
 
 Zewnętrzny backtest opisuje [BACKTEST.md](../BACKTEST.md). Trenuje raz na
 osobnym zakresie, następnie wywołuje `predict_branches()` dla kolejnych origins.

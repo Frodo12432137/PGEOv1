@@ -2,7 +2,8 @@
 
 Otwórz **`uruchom_backtest_bilansow.py`**. To osobny test historyczny tego samego
 modelu: wywołuje produkcyjne `train_branch_models()` i `predict_branches()`.
-Nie kopiuje realizacji jako prognoz i nie zmienia algorytmu ani parametrów CatBoost.
+Porównuje modele na wcześniejszej walidacji; prognozy powstają bez znajomości
+realizacji z okresu backtestu. Nowe rodziny i zespół są dostępne w obu przepływach.
 Model jest uczony raz, a potem zamrożony na cały wybrany okres testu.
 
 ## Co ustawić przed uruchomieniem
@@ -28,7 +29,8 @@ Model jest uczony raz, a potem zamrożony na cały wybrany okres testu.
 
 3. `PARAMETRY` kopiuje cały słownik z obecnego treningu: `models="auto"`,
    `tune=True`, 300 iteracji, sześć wariantów pogody, te same limity próbek,
-   okna wewnętrznej walidacji/testu i ziarno losowości. Parametry opisuje
+   okna wewnętrznej walidacji/testu i ziarno losowości, zespół `ensemble=True`.
+   Parametry opisuje
    [PARAMETRY_I_RAPORTY.md](PARAMETRY_I_RAPORTY.md). Możesz je nadpisać,
    np. `PARAMETRY["threads"] = 4`. `TRENING_OD` zastępuje tutaj `start_date`.
 4. Ustaw `FOLDER_BACKTESTU`, domyślnie `backtest_bilansu`. Raport i model tego
@@ -39,8 +41,10 @@ Model jest uczony raz, a potem zamrożony na cały wybrany okres testu.
    python -m pip install -r mdd_forecasting/requirements-production.txt
    ```
 
-   Ten plik obejmuje opcjonalny CatBoost. Bez niego `auto` porównuje tylko
-   HistGradientBoosting, tak samo jak zwykły trening. Zmiana dostępności/wersji
+   Ten plik obejmuje CatBoost, LightGBM i XGBoost obok HistGradientBoosting.
+   `auto` porównuje wszystkie zainstalowane rodziny. Brakująca biblioteka jest
+   jawnie pomijana. Linux x86_64 używa pakietu xgboost-cpu; Windows — xgboost,
+   również z obliczeniami na CPU. Zmiana dostępności/wersji
    bibliotek może zmienić wybrany model; wersje są zapisane w manifeście.
 
 6. Kliknij **▶ Run Python File** albo uruchom:
@@ -95,6 +99,12 @@ uruchomienia. Otwórz w nim:
 | `szczegoly_backtestu.csv` | osobne kierunki, wydanie pogody i statusy każdej prognozy |
 | `przebieg_ciagly.csv` | po jednej, najnowszej prognozie dla każdej godziny/oddziału; źródło wykresu ciągłego |
 | `trening/raport_treningu.xlsx` | wybór modelu, konfiguracji i pogody oraz ważność grup pogody na wcześniejszym wewnętrznym teście |
+| `bledy_kazdej_godziny.csv` / arkusz `Kazda_godzina` | każdy origin/cel/OSD/kierunek: realizacja, prognoza, błąd ze znakiem, bezwzględny i względny (pusty przy zerowej realizacji) |
+| `bledy_godziny.csv`, `bledy_godziny_lacznie.csv` | błędy lokalnych godzin 0–23 dla każdego OSD i zbiorczo |
+| `bledy_miesiace.csv`, `bledy_miesiace_lacznie.csv` | błędy osobnych miesięcy, np. 2024-07 i 2025-07; lata nie są łączone |
+| `jakosc_pogody_zmienne.csv`, `jakosc_pogody_wydania.csv` | pokrycie, braki, podejrzane zakresy, wiek wydania i wyprzedzenie meteo według OSD/miesiąca/horyzontu |
+| `rekomendacje_modelu.csv` / arkusz `Rekomendacje_parametrow` | konfiguracje wybrane na wcześniejszej walidacji, już zastosowane; porównanie z profilem i ostrzeżenia |
+| `rekomendacje_pogody.csv`, `walidacja_osd.csv` | ranking zestawów pogody i wyniki każdego OSD na walidacji |
 | `trening/modele_oddzialow.joblib` i `manifest_oddzialy.json` | dokładny model użyty do tego backtestu i jego wersje bibliotek |
 | `backtest.log`, `postep_strojenia.csv`, `przebiegi/` | postęp, ukończone próby strojenia i bilanse kolejnych uruchomień |
 
@@ -113,18 +123,20 @@ Excel pokazuje do 20 000 wierszy tabeli i pierwsze 5000 punktów wykresu oddzia�
 pełne dane pozostają w CSV. Nie obiecujemy określonej dokładności przed oceną
 na danych PGE. Wyniki testów programu na danych syntetycznych nie są takim wynikiem.
 
-## Limit nocnych obliczeń i wznowienie
+## Obliczenia bez limitu i wznowienie
 
-`WYKONANIE["max_runtime_hours"] = 10` ogranicza cały proces, włącznie z odczytem,
-SQL, treningiem i raportami. Start o 20:00 oznacza zatrzymanie około 06:00,
-z niewielkim czasem potrzebnym na zakończenie procesu. **Limit nie gwarantuje,
-że pełny model zdąży się nauczyć.** Czas zależy od CPU, RAM, danych i SQL.
+`WYKONANIE["max_runtime_hours"] = None` oznacza **brak limitu czasu**.
+Program działa aż zakończy trening, wszystkie prognozy oraz raporty albo napotka błąd.
+Nie zatrzyma się automatycznie po 10 godzinach. Czas zależy od CPU, RAM, danych i SQL;
+nie gwarantujemy ukończenia do konkretnej godziny.
 Laptop uruchamiający skrypt musi być włączony i nie może się uśpić.
+
+Opcjonalnie możesz wpisać dodatnią liczbę godzin, aby przywrócić twardy limit.
 
 Program nie obcina po cichu grida ani liczby drzew. Po każdej zakończonej próbie
 zapisuje jej wynik. Po pełnym treningu zapisuje model. Raport częściowy powstaje
 po pierwszej prognozie, następnie co `report_every_origins` uruchomień i na końcu.
-Po przekroczeniu limitu kod zakończenia to **124**, status to `LIMIT_CZASU`,
+Po przekroczeniu opcjonalnie włączonego limitu kod zakończenia to **124**, status to `LIMIT_CZASU`,
 `kompletny=false`. Wcześniej zapisany raport może obejmować mniej uruchomień niż
 liczba ukończonych plików w `przebiegi/`; stan raportu i jego zakres są jawne.
 Jeżeli limit przerwie samo uczenie, raportu jakości jeszcze nie będzie.
@@ -133,7 +145,9 @@ Ponownie uruchom ten sam skrypt z `resume=True`. Identyczne wejścia, kod,
 ustawienia i wersje bibliotek wykorzystają zapisane wyniki strojenia albo gotowy
 model. Przerwana próba jest powtarzana; obowiązkowe refity modelu muszą się
 ukończyć. Prognozy i raporty są przeliczane do nowego podfolderu, bez mieszania
-z poprzednim. Cache jest w `backtest_bilansu/cache/`; dla SQL wznowienie używa
+z poprzednim. Zapisane wyniki kandydatów nie obejmują dużych modeli; przy
+wznowieniu odtwarzana jest walidacja zwycięzcy lub dwóch kandydatów zespołu,
+a następnie obowiązkowe refity. Nie powtarza się całego grida. Cache jest w `backtest_bilansu/cache/`; dla SQL wznowienie używa
 tego samego zapisanego archiwum pogody. `resume=False` pobiera je ponownie
 i rozpoczyna nowe uczenie. Nie zmieniaj ręcznie cache ani plików joblib.
 

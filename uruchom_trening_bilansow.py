@@ -13,7 +13,8 @@ SCIEZKA_MAPOWANIA = r""  # Puste = mdd_forecasting/config/oddzial_miasto.csv.
 
 # ================== MODEL I DOKŁADNOŚĆ ==================
 PARAMETRY = {
-    "models": "auto",  # HistGradientBoosting + opcjonalny CatBoost; można wskazać jedną rodzinę.
+    "models": "auto",  # Porównaj dostępne HistGradientBoosting, CatBoost, LightGBM i XGBoost.
+    "ensemble": True,  # Porównaj też zespół 2 modeli. Zostaje tylko, gdy wygrywa na walidacji.
     "tune": True,  # Trzy ustawienia każdej rodziny × warianty pogody. False = szybciej.
     "max_iter": 300,  # Liczba iteracji/drzew. Więcej zwiększa czas; nie gwarantuje poprawy.
     "learning_rate": 0.06,  # Krok uczenia. Niższy zwykle wymaga więcej iteracji.
@@ -22,6 +23,8 @@ PARAMETRY = {
     "l2_regularization": 2.0,  # Regularyzacja HistGradientBoosting; większa ogranicza przeuczenie.
     "catboost_depth": 6,  # Głębokość CatBoost; ma znaczenie po jego instalacji.
     "catboost_l2_leaf_reg": 5.0,  # Regularyzacja CatBoost.
+    "lightgbm_num_leaves": 31,  # Liczba liści LightGBM; tune porównuje też prostszy i większy model.
+    "xgboost_max_depth": 6,  # Głębokość XGBoost; tune porównuje także 4 i 8.
     "threads": 4,  # Liczba wątków CPU używanych w treningu.
     "random_state": 42,  # Ziarno losowości: powtarzalność porównań w tym samym środowisku.
     "weather_variants": ["kalendarz", "temperatura", "slonce", "temperatura_slonce", "pogoda_podstawowa", "pogoda_pelna"],

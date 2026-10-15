@@ -63,6 +63,11 @@ def write_backtest_reports(bundle, details, balance, directory: Path, scope: dic
                        zakres_backtestu=pd.DataFrame(scope.items(), columns=["parametr", "wartosc"]),
                        pominiete_dni_zmiany_czasu=excluded,
                        porownanie_wariantow=training_reports["porownanie_wariantow"])
+        from .weather_quality import weather_quality_tables
+        reports.update(weather_quality_tables(eligible_details, bundle["settings"]["timezone"]))
+        for name in ["rekomendacje_modelu", "rekomendacje_pogody", "walidacja_osd", "waznosc_pogody"]:
+            if name in training_reports:
+                reports[name] = training_reports[name]
         for name, frame in reports.items():
             write_csv(frame, directory / f"{name}.csv")
         write_training_workbook(bundle, reports, directory / "raport_backtestu.xlsx", read_me=note)
@@ -71,7 +76,7 @@ def write_backtest_reports(bundle, details, balance, directory: Path, scope: dic
             f"Trening: {scope['trening_od']} – {scope['trening_do']}",
             f"Backtest (origins): {scope['backtest_uruchomienia_od']} – {scope['backtest_uruchomienia_do']}",
             "Model: produkcyjny trening, zamrożony na cały okres backtestu.",
-            "Stan końcowy procesu i limit czasu: status_backtestu.json.",
+            "Stan końcowy procesu: status_backtestu.json. Domyślnie bez limitu czasu.",
             "Liczba par origin/cel nie jest liczbą unikalnych godzin.",
             "Jednostki energii zgodne z wejściem; WAPE 0,10 oznacza 10%.",
             "Pogoda: tylko wydania dostępne nie później niż origin. Korekty energii: ocena retrospektywna.",
@@ -79,13 +84,16 @@ def write_backtest_reports(bundle, details, balance, directory: Path, scope: dic
     if not summary.empty:
         net = summary.loc[summary.kierunek.eq("BILANS")]
         text.extend(["", "BILANS — wszystkie prognozy poza DST:", net[["oddzial_code", "n", "n_godzin", "pokrycie", "mae", "rmse", "bias", "wape", "ocena_vs_profil"]].to_string(index=False)])
+        text.extend(["", "PARAMETRY ZASTOSOWANE — WYBÓR NA WCZEŚNIEJSZEJ WALIDACJI:",
+                     training_reports.get("rekomendacje_modelu", pd.DataFrame()).to_string(index=False),
+                     "", "Pogoda: pokrycie/wiek/zakresy w jakosc_pogody_*.csv. Brak obserwacji meteo do pomiaru trafności prognozy pogody."])
     temporary = directory / "podsumowanie_backtestu.tmp.txt"
     temporary.write_text("\n".join(text), encoding="utf-8")
     temporary.replace(directory / "podsumowanie_backtestu.txt")
-    write_html(balance, summary, bundle, scope, directory / "raport_backtestu.html", max_html_origins)
+    write_html(balance, summary, bundle, scope, directory / "raport_backtestu.html", max_html_origins, reports=reports)
 
 
-def write_html(balance, summary, bundle, scope, destination, maximum_origins):
+def write_html(balance, summary, bundle, scope, destination, maximum_origins, *, reports=None):
     origins = sorted(balance.forecast_origin_utc.unique())
     selected = np.linspace(0, len(origins) - 1, min(len(origins), maximum_origins), dtype=int)
     origins = [origins[int(position)] for position in selected]
@@ -108,6 +116,10 @@ def write_html(balance, summary, bundle, scope, destination, maximum_origins):
     payload = {"series": data, "summary": json.loads(summary.to_json(orient="records")),
                "scope": scope, "choices": choices, "origins_shown": len(origins),
                "origins_total": balance.forecast_origin_utc.nunique()}
+    payload["tables"] = {name: json.loads(frame.to_json(orient="records")) for name, frame in (reports or {}).items()
+                         if name in {"bledy_godziny", "bledy_miesiace", "bledy_horyzont", "bledy_godziny_lacznie",
+                                     "bledy_miesiace_lacznie", "bledy_horyzont_lacznie", "jakosc_pogody_zmienne",
+                                     "jakosc_pogody_wydania", "rekomendacje_modelu", "rekomendacje_pogody"}}
     encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
     title = f"Trening {scope['trening_od']} – {scope['trening_do']} · Uruchomienia {scope['backtest_uruchomienia_od']} – {scope['backtest_uruchomienia_do']}"
     html = HTML.replace("__PAYLOAD__", encoded).replace("__TITLE__", escape(title))
@@ -141,6 +153,22 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:right;
 <p id="hover" class="muted">Najedź na wykres, aby odczytać wartości i horyzont.</p>
 <p class="muted">Czas lokalny Europe/Warsaw. Energia w jednostce pliku źródłowego. Przerwa realizacji oznacza brak danych lub wyłączoną dobę DST. Widok ciągły wybiera najnowszy origin dla każdego celu; statystyki poniżej oceniają wszystkie zlecenia.</p></section>
 <section class="panel"><h2>Błędy według oddziałów</h2><p>Wszystkie horyzonty, poza dobami DST. Mniej MAE i RMSE oznacza mniejszy błąd. Dodatni bias oznacza zawyżanie. Porównanie z profilem wykorzystuje wspólne dostępne wiersze.</p><div class="scroll"><table id="metrics"></table></div></section>
+<section class="panel"><h2>Godziny, miesiące i horyzont prognozy</h2>
+<div class="controls"><label>Zakres<select id="diagnosticScope"><option value="OSD">Wybrany OSD</option><option value="ALL">Wszystkie OSD — błędy pojedynczych prognoz</option></select></label>
+<label>Podział<select id="dimension"><option value="godziny">Godzina lokalna 0–23</option><option value="miesiace">Rok i miesiąc</option><option value="horyzont">Wyprzedzenie 1–72 h</option></select></label>
+<label>Miara<select id="errorMetric"><option value="mae">MAE</option><option value="rmse">RMSE</option><option value="bias">Bias</option><option value="wape">WAPE (%)</option></select></label></div>
+<svg id="errorPlot" viewBox="0 0 1160 340" aria-label="Błędy w czasie"></svg>
+<div class="scroll"><table id="errorTable"></table></div>
+<h3>Błąd godzinowy każdego OSD</h3><p class="muted">Kolor pokazuje wielkość wybranej miary. Najedź na komórkę po szczegóły. Wszystkie tabele dotyczą wielkości wybranej u góry: bilansu, pobrania lub oddania.</p>
+<svg id="hourHeatmap" viewBox="0 0 1160 350" aria-label="Mapa błędów OSD i godzin"></svg>
+<p class="muted">Statystyki zbiorcze uśredniają błędy pojedynczych prognoz OSD, bez sumowania ich bilansów. Szczegółowy błąd każdej godziny, ze znakiem i bezwzględny: bledy_kazdej_godziny.csv i arkusz Kazda_godzina.</p></section>
+<section class="panel"><h2>Jakość danych pogodowych</h2><p>Kompletność, wiek wydań i kontrola zakresów dla wybranego OSD. Trafność samej prognozy meteorologicznej pozostaje <strong>nieoceniona — brakuje obserwacji meteo</strong>. Błąd energetyczny przy danej pogodzie nie jest błędem prognozy pogody.</p>
+<label>Miesiąc<select id="weatherMonth"></select></label><h3>Zmienne</h3><div class="scroll"><table id="weatherVariables"></table></div>
+<h3>Dostępność historycznych wydań</h3><div class="scroll"><table id="weatherIssues"></table></div>
+<p class="muted">Wiek to czas od wydania do uruchomienia modelu. Osobno podane wyprzedzenie meteorologiczne sięga od wydania do celu. Podejrzane zakresy wymagają sprawdzenia jednostek; raport nie usuwa ani nie poprawia tych danych. Wpływ pogody: arkusze Waznosc_pogody, Blad_a_wiek_pogody i Warunki_pogody.</p></section>
+<section class="panel"><h2>Jakie parametry i pogodę wybrać</h2><p>Poniższe konfiguracje wybrano na wcześniejszej walidacji i już zastosowano. Zewnętrzny backtest służy ocenie. Ostrzeżenie oznacza, że ML nie wygrał z profilem na wspólnych danych walidacji lub porównanie było niedostępne.</p>
+<div class="scroll"><table id="recommendations"></table></div><h3>Porównanie zestawów pogody na walidacji</h3><div class="scroll"><table id="weatherRecommendations"></table></div>
+<p class="muted">Wynik wskazuje najlepszy spośród przetestowanych wariantów. Nie dowodzi optymalności na każdy przyszły okres. Parametry techniczne użytych modeli są niżej i w Excelu. Nowe strojenie po obejrzeniu tego backtestu wymaga nowego okresu testowego.</p></section>
 <section class="panel"><h2>Model i sposób oceny</h2><p>Ten sam kod uczenia i predykcji co w zwykłym modelu. Jednorazowy trening, potem model zamrożony na cały backtest. Pogoda wybierana według publikacji dostępnych w chwili uruchomienia. Realizacje testowe nie uczestniczą w uczeniu ani strojeniu.</p><pre id="choices"></pre>
 <p class="muted">Ważność pogody i porównanie konfiguracji: trening/raport_treningu.xlsx. Dokładne błędy według godzin, dni, horyzontów i pogody: raport_backtestu.xlsx. Pełne prognozy: backtest_bilans.csv i szczegoly_backtestu.csv. Ocena jest retrospektywna na końcowych korektach energii; nie znamy historycznych czasów ich publikacji. Ponowne strojenie po obejrzeniu testu wymaga nowego okresu oceny.</p><p id="limit" class="muted"></p></section>
 </main><script id="data" type="application/json">__PAYLOAD__</script><script>
@@ -148,7 +176,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:right;
 const D=JSON.parse(document.getElementById('data').textContent), $=id=>document.getElementById(id);
 const fmt=x=>x===null||!Number.isFinite(x)?'brak':x.toLocaleString('pl-PL',{maximumFractionDigits:2});
 const local=t=>new Date(t).toLocaleString('pl-PL',{timeZone:'Europe/Warsaw',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
-$('state').textContent=(D.scope.kompletny?'Ukończono wybrany zakres':'WYNIK CZĘŚCIOWY')+' · '+D.scope.gotowe_prognozy+'/'+D.scope.planowane_prognozy+' uruchomień. Stan końcowy i ewentualny limit czasu: status_backtestu.json. Pokrycie oceny sprawdź w tabeli.';
+$('state').textContent=(D.scope.kompletny?'Ukończono wybrany zakres':'WYNIK CZĘŚCIOWY')+' · '+D.scope.gotowe_prognozy+'/'+D.scope.planowane_prognozy+' uruchomień. Stan końcowy: status_backtestu.json. Pokrycie oceny sprawdź w tabeli.';
 $('limit').textContent='HTML pokazuje '+D.origins_shown+' z '+D.origins_total+' origins oraz widok ciągły. Wszystkie wiersze pozostają w CSV. Raport działa bez Internetu.';
 $('choices').textContent=JSON.stringify(D.choices,null,2);
 function options(element,values){element.replaceChildren();values.forEach(value=>{const o=document.createElement('option');o.value=value;o.textContent=value;element.appendChild(o);});}
@@ -163,13 +191,31 @@ function node(tag,attrs,text){const n=document.createElementNS(ns,tag);Object.en
 function draw(){points=D.series[$('branch').value][$('origin').value]||[];const c=Number($('channel').value),offset=1+3*c,svg=$('plot');svg.replaceChildren();if(!points.length)return;
 $('chartTitle').textContent=$('branch').value+' · '+$('channel').selectedOptions[0].text;
 const xs=points.map(p=>p[0]),ys=points.flatMap(p=>p.slice(offset,offset+3)).filter(v=>v!==null&&Number.isFinite(v));if(!ys.length){node('text',{x:100,y:180},'Brak wartości prognoz i realizacji');return;}
-let ymin=Math.min(...ys),ymax=Math.max(...ys);const padding=(ymax-ymin)*.08||1;ymin-=padding;ymax+=padding;
+let ymin=ys.reduce((a,b)=>Math.min(a,b),Infinity),ymax=ys.reduce((a,b)=>Math.max(a,b),-Infinity);const padding=(ymax-ymin)*.08||1;ymin-=padding;ymax+=padding;
 const x=t=>88+(t-xs[0])/Math.max(1,xs.at(-1)-xs[0])*1040,y=v=>330-(v-ymin)/(ymax-ymin)*290;
 for(let i=0;i<6;i++){let v=ymin+(ymax-ymin)*i/5,yy=y(v);node('line',{x1:88,x2:1128,y1:yy,y2:yy,stroke:'#e1e7ee'});node('text',{x:80,y:yy+4,'text-anchor':'end',fill:'#53677a','font-size':12},fmt(v));}
 for(let i=0;i<6;i++){let t=xs[0]+(xs.at(-1)-xs[0])*i/5;node('text',{x:x(t),y:360,'text-anchor':'middle',fill:'#53677a','font-size':12},local(t));}
 ['#20364b','#1168dc','#da8200'].forEach((color,k)=>{let path='',gap=true;points.forEach(p=>{let v=p[offset+k];if(v===null||!Number.isFinite(v)){gap=true;return;}path+=(gap?'M':'L')+x(p[0])+','+y(v);gap=false;});node('path',{d:path,fill:'none',stroke:color,'stroke-width':k===1?2.8:1.8,'stroke-dasharray':k===2?'6 4':''});});
 const marker=node('line',{x1:88,x2:88,y1:30,y2:330,stroke:'#627990',visibility:'hidden'});
 svg.onpointermove=e=>{let px=(e.clientX-svg.getBoundingClientRect().left)/svg.getBoundingClientRect().width*1160;let i=Math.max(0,Math.min(points.length-1,Math.round((px-88)/1040*(points.length-1))));let p=points[i];marker.setAttribute('x1',x(p[0]));marker.setAttribute('x2',x(p[0]));marker.setAttribute('visibility','visible');$('hover').textContent=local(p[0])+' · UTC '+new Date(p[0]).toISOString()+' · h='+p.at(-1)+' · realizacja '+fmt(p[offset])+' · ML '+fmt(p[offset+1])+' · profil '+fmt(p[offset+2]);};}
-function changeBranch(){options($('origin'),Object.keys(D.series[$('branch').value]));draw();}
-$('branch').onchange=changeBranch;$('origin').onchange=draw;$('channel').onchange=draw;changeBranch();
+const T=D.tables||{},channel=()=>['BILANS','POBRANIE','ODDANIE'][Number($('channel').value)];
+function addSvg(parent,tag,attrs,text){const n=document.createElementNS(ns,tag);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));if(text!==undefined)n.textContent=text;parent.appendChild(n);return n;}
+function fillTable(id,rows,columns){const table=$(id);table.replaceChildren();const head=document.createElement('tr');columns.forEach(([key,label])=>{const c=document.createElement('th');c.textContent=label;head.appendChild(c);});table.appendChild(head);rows.slice(0,150).forEach(row=>{const r=document.createElement('tr');columns.forEach(([key,label,type])=>{const c=document.createElement('td'),v=row[key];c.textContent=type==='pct'?(v===null||v===undefined?'brak':fmt(v*100)+'%'):(typeof v==='number'?fmt(v):v??'brak');r.appendChild(c);});table.appendChild(r);});}
+function renderWeather(){const branch=$('branch').value,month=$('weatherMonth').value,filter=r=>r.oddzial_code===branch&&r.rok_miesiac===month;
+fillTable('weatherVariables',(T.jakosc_pogody_zmienne||[]).filter(filter),[['zmienna','Zmienna'],['pokrycie','Pokrycie','pct'],['braki','Braki'],['nieskonczone','Nieskończone'],['podejrzany_zakres','Podejrzane'],['minimum','Min'],['mediana','Mediana'],['maksimum','Max'],['status','Stan']]);
+fillTable('weatherIssues',(T.jakosc_pogody_wydania||[]).filter(filter),[['horyzont','Horyzont'],['pokrycie_wydaniami','Wydania as-of','pct'],['brak_wydania_asof','Brak wydania'],['wiek_wydania_mediana_h','Wiek mediana h'],['wiek_wydania_p95_h','Wiek P95 h'],['liczba_wydan_starszych_24h','Wydania >24 h'],['wyprzedzenie_meteo_mediana_h','Wyprzedzenie meteo h']]);}
+function renderAnalysis(){const branch=$('branch').value,kind=channel(),dimension=$('dimension').value,metric=$('errorMetric').value,all=$('diagnosticScope').value==='ALL';
+const key='bledy_'+dimension+(all?'_lacznie':''),field={godziny:'godzina_lokalna',miesiace:'rok_miesiac',horyzont:'horyzont_h'}[dimension];
+const rows=(T[key]||[]).filter(r=>r.kierunek===kind&&(all||r.oddzial_code===branch)).sort((a,b)=>typeof a[field]==='number'?a[field]-b[field]:String(a[field]).localeCompare(String(b[field])));
+fillTable('errorTable',rows,[[field,'Zakres'],['n','n prognoz'],['n_godzin','n godzin UTC'],['pokrycie','Pokrycie','pct'],['mae','MAE'],['rmse','RMSE'],['bias','Bias'],['wape','WAPE','pct'],['poprawa_mae_vs_profil','Poprawa vs profil','pct']]);
+const svg=$('errorPlot');svg.replaceChildren();const valid=rows.filter(r=>r[metric]!==null&&Number.isFinite(r[metric]));if(valid.length){let vals=valid.map(r=>r[metric]*(metric==='wape'?100:1)),lo=Math.min(0,vals.reduce((a,b)=>Math.min(a,b),Infinity)),hi=Math.max(0,vals.reduce((a,b)=>Math.max(a,b),-Infinity));if(hi===lo)hi=lo+1;const y=v=>275-(v-lo)/(hi-lo)*230,x=i=>90+i/Math.max(1,valid.length-1)*1020;
+for(let i=0;i<5;i++){let v=lo+(hi-lo)*i/4;addSvg(svg,'line',{x1:90,x2:1110,y1:y(v),y2:y(v),stroke:'#e1e7ee'});addSvg(svg,'text',{x:82,y:y(v)+4,'text-anchor':'end','font-size':12},fmt(v)+(metric==='wape'?'%':''));}
+let path='';valid.forEach((r,i)=>{path+=(i?'L':'M')+x(i)+','+y(vals[i]);const dot=addSvg(svg,'circle',{cx:x(i),cy:y(vals[i]),r:4,fill:'#1168dc'});addSvg(dot,'title',{},String(r[field])+': '+fmt(vals[i])+'; n='+r.n);if(i%Math.max(1,Math.ceil(valid.length/12))===0)addSvg(svg,'text',{x:x(i),y:305,'text-anchor':'middle','font-size':12},String(r[field]));});addSvg(svg,'path',{d:path,fill:'none',stroke:'#1168dc','stroke-width':2});}
+const heat=$('hourHeatmap');heat.replaceChildren();const branches=Object.keys(D.series),cells=(T.bledy_godziny||[]).filter(r=>r.kierunek===kind),maximum=cells.reduce((max,r)=>Math.max(max,Math.abs(r[metric]||0)),0)||1;heat.setAttribute('viewBox','0 0 1160 '+(60+branches.length*34));
+for(let h=0;h<24;h++)addSvg(heat,'text',{x:120+h*41+18,y:22,'text-anchor':'middle','font-size':12},h);
+branches.forEach((code,index)=>{addSvg(heat,'text',{x:95,y:53+index*34,'text-anchor':'end','font-size':13},code);for(let h=0;h<24;h++){const row=cells.find(r=>r.oddzial_code===code&&r.godzina_lokalna===h),value=row?.[metric],intensity=value===null||value===undefined?null:Math.abs(value)/maximum;const rect=addSvg(heat,'rect',{x:120+h*41,y:32+index*34,width:37,height:29,rx:3,fill:intensity===null?'#e2e8f0':`hsl(${210-200*intensity},65%,${94-36*intensity}%)`});addSvg(rect,'title',{},code+' godzina '+h+' · '+metric+'='+fmt(value)+' · n='+(row?.n??0));}});
+fillTable('recommendations',T.rekomendacje_modelu||[],[['kierunek','Wielkość'],['model','Model'],['wariant_pogody','Pogoda'],['liczba_iteracji','Iteracje'],['walidacja_macro_mae_norm','Błąd walidacji norm.'],['poprawa_vs_profil_walidacja','Poprawa vs profil','pct'],['zalecenie','Wniosek']]);
+fillTable('weatherRecommendations',(T.rekomendacje_pogody||[]).filter(r=>kind==='BILANS'||r.kierunek===kind).sort((a,b)=>a.ranking_walidacji-b.ranking_walidacji),[['kierunek','Wielkość'],['wariant','Pogoda'],['najlepszy_backend','Model'],['walidacja_macro_mae_norm','Błąd walidacji norm.'],['poprawa_vs_kalendarz','Poprawa vs kalendarz','pct'],['ranking_walidacji','Ranking']]);renderWeather();}
+function changeBranch(){options($('origin'),Object.keys(D.series[$('branch').value]));options($('weatherMonth'),[...new Set((T.jakosc_pogody_zmienne||[]).filter(r=>r.oddzial_code===$('branch').value).map(r=>r.rok_miesiac))].sort());draw();renderAnalysis();}
+$('branch').onchange=changeBranch;$('origin').onchange=draw;$('channel').onchange=()=>{draw();renderAnalysis();};['diagnosticScope','dimension','errorMetric'].forEach(id=>$(id).onchange=renderAnalysis);$('weatherMonth').onchange=renderWeather;changeBranch();
 </script></html>'''

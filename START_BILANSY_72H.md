@@ -229,8 +229,10 @@ informacje. Jednostki promieniowania i pozostałych danych pozostają źródłow
 Dobór wykorzystuje osobne chronologiczne okno walidacyjne. Wynik jest średnim
 błędem znormalizowanym po oddziałach, aby duży oddział nie zdominował wyboru.
 Opcja `--tune` porównuje trzy zestawy parametrów każdej rodziny.
-`--models auto` dołącza CatBoost, jeśli jest zainstalowany; bez niego jawnie
-pozostaje HistGradientBoosting. Wariant i parametry wybiera wyłącznie walidacja.
+`--models auto` porównuje HistGradientBoosting i zainstalowane CatBoost, LightGBM,
+XGBoost. `--ensemble` sprawdza też ważony zespół dwóch modeli, zachowany tylko
+po poprawie wyniku walidacji. Domyślny launcher VS Code włącza ten wybór.
+Wariant i parametry wybiera wyłącznie walidacja.
 Każdy oddział/kierunek musi mieć odpowiednie pokrycie w walidacji i teście.
 Późniejsze, osobne okno testowe służy ocenie wybranego modelu oraz grupowej
 ważności pogody. Test nie wybiera zestawu cech. Końcowe modele są następnie

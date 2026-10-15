@@ -59,17 +59,23 @@ def diagnostic_tables(details: pd.DataFrame, balance: pd.DataFrame, timezone: st
                          "wartosc_przewidywana", "wartosc_bazowa", *WEATHER_FEATURES]].rename(columns={
         "kierunek_energii_norm": "kierunek", "wartosc_rzeczywista": "realizacja",
         "wartosc_przewidywana": "prognoza", "wartosc_bazowa": "profil"})
+    direction["wiek_prognozy_h"] = details["wiek_prognozy_h"].to_numpy() if "wiek_prognozy_h" in details else np.nan
     net = balance[[*keys, "bilans_wartosc_rzeczywista", "bilans_wartosc_przewidywana", "bilans_wartosc_bazowa"]].rename(columns={
         "bilans_wartosc_rzeczywista": "realizacja", "bilans_wartosc_przewidywana": "prognoza",
         "bilans_wartosc_bazowa": "profil"})
     net["kierunek"] = "BILANS"
     weather = details[[*keys, *WEATHER_FEATURES]].drop_duplicates(keys)
+    if "wiek_prognozy_h" in details:
+        weather = weather.merge(details[[*keys, "wiek_prognozy_h"]].drop_duplicates(keys), on=keys, validate="one_to_one")
+    else:
+        weather["wiek_prognozy_h"] = np.nan
     net = net.merge(weather, on=keys, how="left", validate="one_to_one")
     errors = pd.concat([direction, net], ignore_index=True)
     local = errors["target_time_utc"].dt.tz_convert(timezone)
     errors["godzina_lokalna"] = local.dt.hour
     errors["dzien_tygodnia"] = local.dt.dayofweek
     errors["miesiac"] = local.dt.month
+    errors["rok_miesiac"] = local.dt.strftime("%Y-%m")
     errors["doba_lokalna"] = local.dt.tz_localize(None).dt.normalize()
     errors["blad"] = errors["prognoza"] - errors["realizacja"]
     errors["blad_abs"] = errors["blad"].abs()
@@ -78,11 +84,21 @@ def diagnostic_tables(details: pd.DataFrame, balance: pd.DataFrame, timezone: st
         [summary["n_wspolne_z_profilem"].eq(0), summary["mae_ml_wspolne"].gt(summary["mae_profil_wspolne"]),
          summary["mae_ml_wspolne"].lt(summary["mae_profil_wspolne"])],
         ["BRAK_WSPOLNEJ_OCENY", "ML_GORSZY_OD_PROFILU", "ML_LEPSZY_OD_PROFILU"], default="REMIS")
-    tables = {"bledy_oddzialy": summary}
+    tables = {"bledy_oddzialy": summary, "bledy_ogolem": aggregate_errors(errors, ["kierunek"])}
     for name, dimension in [("bledy_godziny", "godzina_lokalna"), ("bledy_dni_tygodnia", "dzien_tygodnia"),
-                            ("bledy_miesiace", "miesiac"), ("bledy_doby", "doba_lokalna"),
+                            ("bledy_miesiace", "rok_miesiac"), ("bledy_doby", "doba_lokalna"),
                             ("bledy_horyzont", "horyzont_h")]:
         tables[name] = aggregate_errors(errors, ["oddzial_code", "kierunek", dimension])
+    for name, dimension in [("bledy_godziny_lacznie", "godzina_lokalna"),
+                            ("bledy_miesiace_lacznie", "rok_miesiac"), ("bledy_horyzont_lacznie", "horyzont_h")]:
+        tables[name] = aggregate_errors(errors, ["kierunek", dimension])
+    age = errors.copy()
+    age["wiek_pogody"] = pd.cut(age.wiek_prognozy_h, [-np.inf, 6, 12, 24, 48, np.inf],
+                                labels=["0-6 h", "6-12 h", "12-24 h", "24-48 h", ">48 h"]).astype("string").fillna("BRAK_WYDANIA")
+    tables["bledy_wiek_pogody"] = aggregate_errors(age, ["oddzial_code", "kierunek", "wiek_pogody"])
+    errors["blad_wzgledny"] = errors.blad / errors.realizacja.abs().where(errors.realizacja.ne(0))
+    tables["bledy_kazdej_godziny"] = errors[[*keys, "kierunek", "doba_lokalna", "godzina_lokalna", "rok_miesiac",
+                                           "realizacja", "prognoza", "profil", "blad", "blad_abs", "blad_wzgledny", "wiek_prognozy_h"]].copy()
     tables["bledy_przebiegi"] = aggregate_errors(errors, ["oddzial_code", "kierunek", "forecast_origin_utc"])
     tables["najwieksze_bledy"] = (errors.loc[np.isfinite(errors["blad_abs"])]
                                   .sort_values("blad_abs", ascending=False)
@@ -130,6 +146,10 @@ READ_ME = [
     ("Korekty", "Ocena retrospektywna na najlepszych dostępnych korektach; brak historii ich publikacji. Lagi energii pozostają wyłączone."),
     ("Klienci", "Obecność MDD nie jest potwierdzeniem aktywności umowy. Braki i zmiany portfela trzeba wyjaśnić."),
     ("Duże tabele", "Excel zawiera do 20 000 wierszy każdej tabeli. Pełne tabele są w plikach CSV obok raportu."),
+    ("Miesiące", "Miesiace rozdziela rok i miesiąc (np. 2024-07 oraz 2025-07). Wynik krótkiego okresu nie dowodzi jakości w całym sezonie."),
+    ("Godziny", "Kazda_godzina zawiera każdą parę origin/cel/OSD/kierunek, błąd ze znakiem i bezwzględny. Względny pozostaje pusty przy zerowej realizacji."),
+    ("Jakość pogody", "Kontrola kompletności, wieku i zakresów nie mierzy trafności meteorologicznej. Do jej oceny potrzeba niezależnych obserwacji meteo; tutaj ich brak."),
+    ("Rekomendacje", "Model i zestaw pogody wybrano na wcześniejszej walidacji i już zastosowano. Nie dobieraj ich ponownie na podstawie późniejszego testu."),
 ]
 
 
@@ -207,6 +227,12 @@ def write_training_workbook(bundle: dict, reports: dict[str, pd.DataFrame], dest
         "pominiete_dni_zmiany_czasu": "Pominiete_doby",
         "podsumowanie_portfela": "Portfel", "backtest_bilans": "Backtest_bilans",
         "zakres_backtestu": "Zakres_backtestu", "pokrycie_backtestu": "Pokrycie_backtestu",
+        "bledy_ogolem": "Wyniki_laczne", "bledy_kazdej_godziny": "Kazda_godzina",
+        "bledy_godziny_lacznie": "Godziny_lacznie", "bledy_miesiace_lacznie": "Miesiace_lacznie",
+        "bledy_horyzont_lacznie": "Horyzont_lacznie", "bledy_wiek_pogody": "Blad_a_wiek_pogody",
+        "jakosc_pogody_zmienne": "Jakosc_pogody_zmienne", "jakosc_pogody_wydania": "Jakosc_pogody_wydania",
+        "rekomendacje_modelu": "Rekomendacje_parametrow", "rekomendacje_pogody": "Rekomendacje_pogody",
+        "walidacja_osd": "Walidacja_OSD",
     }
     for key, name in sheets.items():
         if key in reports:
@@ -237,6 +263,16 @@ def write_training_workbook(bundle: dict, reports: dict[str, pd.DataFrame], dest
         chart.set_categories(Reference(hourly_sheet, min_col=1, min_row=2, max_row=len(hourly) + 1))
         chart.width, chart.height = 25, 12
         hourly_sheet.add_chart(chart, "L2")
+    monthly = reports["bledy_miesiace"].loc[lambda x: x["kierunek"].eq("BILANS")]
+    monthly = monthly.pivot(index="rok_miesiac", columns="oddzial_code", values="mae").reset_index()
+    monthly_sheet = add_sheet("Wykres_miesieczny", monthly)
+    if len(monthly) and len(monthly.columns) > 1:
+        chart = LineChart()
+        chart.title = "MAE bilansu według roku/miesiąca i OSD"
+        chart.add_data(Reference(monthly_sheet, min_col=2, max_col=len(monthly.columns), min_row=1, max_row=len(monthly)+1), titles_from_data=True)
+        chart.set_categories(Reference(monthly_sheet, min_col=1, min_row=2, max_row=len(monthly)+1))
+        chart.width, chart.height = 25, 12
+        monthly_sheet.add_chart(chart, "L2")
     if "przebieg_ciagly" in reports:
         for number, (branch, frame) in enumerate(reports["przebieg_ciagly"].groupby("oddzial_code"), 1):
             columns = [f"{channel}_{value}" for channel in ["bilans", "pobranie", "oddanie"]

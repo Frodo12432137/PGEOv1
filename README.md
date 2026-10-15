@@ -27,12 +27,15 @@ Python/pyodbc. Dostępne jest też użycie eksportu pogody zamiast połączenia 
 **[Ustawienia w kodzie, wybór modeli i czytanie statystyk](PARAMETRY_I_RAPORTY.md).**
 Po treningu otwórz `raport_treningu.xlsx`: błędy według oddziałów, godzin, dni,
 horyzontu i warunków pogody, największe pomyłki, porównanie z profilem oraz wykresy.
-`models="auto"` porównuje HistGradientBoosting i opcjonalnie CatBoost; jego instalacja:
+`models="auto"` porównuje HistGradientBoosting, CatBoost, LightGBM i XGBoost;
+`ensemble=True` sprawdza też zespół wybrany na walidacji. Instalacja rodzin:
 `python -m pip install -r mdd_forecasting/requirements-production.txt`.
 
 Backtest: otwórz **`uruchom_backtest_bilansow.py`**, ustaw daty treningu i testu,
-kliknij ▶. Ten sam model, osobny późniejszy okres oceny, limit czasu i wznowienie.
+kliknij ▶. Ten sam model, osobny późniejszy okres oceny, bez limitu czasu i ze wznowieniem.
 Wyniki: interaktywny `raport_backtestu.html`, Excel z wykresami i pełne CSV.
+Błędy każdej godziny/OSD, miesiące z rozróżnieniem lat, mapa OSD × godzina,
+kontrola pogody i rekomendacje parametrów zastosowanych na podstawie walidacji.
 **[Instrukcja krok po kroku](BACKTEST.md).** Całe doby zmiany czasu pozostają
 domyślnie wyłączone; dawny osobny audyt godzin został usunięty.
 
