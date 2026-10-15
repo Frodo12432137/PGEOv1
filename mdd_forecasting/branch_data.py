@@ -14,7 +14,7 @@ from .io import (
 )
 
 # Aliasy potwierdzone na zdjęciach i w opisie. ŁZE oraz ZEUE to Łódź miasto.
-BRANCH_ALIASES = {"LBU": "LUB", "ŁZE": "ZEUE", "LZE": "ZEUE", "RZ": "RZE"}
+BRANCH_ALIASES = {"LBU": "LUB", "ŁZE": "ZEUE", "LZE": "ZEUE", "ZŁT": "ZEUD", "ZLT": "ZEUD", "RZ": "RZE"}
 BRANCHES = ("BIA", "LUB", "RZE", "SKO", "WAW", "ZAM", "ZEUD", "ZEUE")
 
 
@@ -50,7 +50,9 @@ def load_branch_energy(path: str | Path, config: PipelineConfig, return_measurem
     mapping, mapping_table = load_branch_mapping(config.mapping_path)
     raw = read_energy_file(path, sheet_regex=config.sheet_regex)
     normalized, quality = normalize_energy(raw, mapping)
-    hourly, extra, measurements = aggregate_branch_energy(normalized, config.timezone, return_measurements=True)
+    hourly, extra, measurements = aggregate_branch_energy(
+        normalized, config.timezone, return_measurements=True, mapping_path=config.mapping_path,
+    )
     result = (hourly, pd.concat([quality, extra], ignore_index=True), mapping_table)
     return (*result, measurements) if return_measurements else result
 
@@ -100,12 +102,22 @@ def _within_day_gaps(measurements: pd.DataFrame, timezone: str) -> pd.DataFrame:
         columns={"klient_nazwa": "brakujace_rekordy_mdd"})
 
 
-def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw", return_measurements: bool = False):
+def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw", return_measurements: bool = False,
+                            *, mapping_path: str | Path | None = None):
     df = frame.copy()
-    df["oddzial_code"] = df["oddzial_code"].str.upper().replace(BRANCH_ALIASES)
     unknown = sorted(df.loc[df["oddzial_code"].notna() & df["punkt"].isna(), "oddzial_code"].unique())
     if unknown:
-        raise ValueError(f"Brak mapowania pogody dla oddziałów {unknown}. Uzupełnij oddzial_miasto.csv.")
+        keys = {code: _ascii_token(code) for code in unknown}
+        source = str(Path(mapping_path).expanduser().resolve()) if mapping_path else "oddzial_miasto.csv"
+        columns = [col for col in ["source_sheet", "source_row", "oddzial_code"] if col in df]
+        examples = df.loc[df["punkt"].isna() & df["oddzial_code"].notna(), columns].head(5).to_dict("records")
+        raise ValueError(
+            f"Brak mapowania pogody dla oddziałów {unknown}. Klucze po normalizacji: {keys}. "
+            f"Przykładowe rekordy: {examples}. Uzupełnij {source}: "
+            "oddzial_code = kod z eksportu, punkt = potwierdzone miasto pogody, status = active. "
+            "Sprawdź też wpisy inactive. Nieznane oddziały nie są pomijane ani przypisywane automatycznie."
+        )
+    df["oddzial_code"] = df["oddzial_code"].str.upper().replace(BRANCH_ALIASES)
     # Wiersze z pustym oddziałem oraz kierunkiem 0 są poza portfelem oddziałów.
     relevant = df["oddzial_code"].notna()
     df = df.loc[relevant].copy()

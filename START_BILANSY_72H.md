@@ -93,11 +93,27 @@ Mapowanie można edytować w `mdd_forecasting/config/oddzial_miasto.csv`:
 | SKO | Skarżysko-Kamienna |
 | WAW | Warszawa |
 | ZAM | Zamość |
-| ZEUD | Łódź |
+| ZEUD, alias ZŁT/ZLT | Łódź |
 | ZEUE, alias ŁZE/LZE ze zdjęcia | Łódź |
 
-Aliasy Łodzi są wstępnym uzgodnieniem z opisu. Należy potwierdzić je na pełnej
-liście oddziałów z rzeczywistego eksportu. Do prognozy wchodzą wyłącznie oddziały,
+Użytkownik potwierdził 15 października 2026: `ZŁT` to Łódź teren (`ZEUD`),
+a `ŁZE` to Łódź miasto (`ZEUE`). Oba oddziały korzystają z pogody Łodzi,
+ale ich pomiary i bilanse pozostają osobne. Normalizacja usuwa znaki diakrytyczne
+tylko w kluczach porównania; nazwy w pliku zachowują polskie znaki.
+
+Odczyt mapowania obsługuje UTF-8 (także BOM), Windows-1250 oraz UTF-16 z BOM,
+z separatorem przecinek, średnik lub tabulator. Zalecany zapis to CSV UTF-8.
+Po odczycie program wypisuje pełną ścieżkę do użytego pliku i kodowanie.
+Domyślna ścieżka jest liczona od katalogu pakietu, niezależnie od katalogu
+roboczego VS Code. Własny plik wybierz przez `SCIEZKA_MAPOWANIA` na początku
+`uruchom_trening_bilansow.py` lub `--mapping` w CLI. Spacje wokół pól i wielkość
+liter w nagłówkach/statusach są normalizowane. Dozwolone statusy to `active`
+i `inactive`; aktywne wpisy wymagają kodu i miasta. Sprzeczne wpisy są błędem.
+Nieznany kod zatrzymuje import z informacją o pliku mapowania, kluczu po
+normalizacji oraz przykładowym arkuszu/wierszu eksportu; nie jest pomijany.
+
+Kompletność mapowania należy potwierdzić na pełnej liście oddziałów
+z rzeczywistego eksportu. Do prognozy wchodzą wyłącznie oddziały,
 które mają historię obu kierunków. Jeśli eksport zawiera równocześnie MDD
 sumaryczne i ich składowe, przed uczeniem trzeba usunąć to nakładanie portfeli.
 Program usuwa wersje tego samego MDD, ale nie zna hierarchii między różnymi MDD.

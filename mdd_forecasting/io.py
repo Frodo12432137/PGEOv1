@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import csv
 import re
 import unicodedata
+import warnings
 from pathlib import Path
 from typing import Iterable
 
@@ -35,33 +37,93 @@ def _numeric(series: pd.Series) -> pd.Series:
     return pd.to_numeric(cleaned, errors="coerce")
 
 
-def _read_csv_export(path: Path) -> pd.DataFrame:
+def _read_csv_export(path: Path, **kwargs) -> pd.DataFrame:
     with path.open("rb") as stream:
         prefix = stream.read(4)
-    encoding = "utf-16" if prefix.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
-    try:
-        return pd.read_csv(path, sep=None, engine="python", encoding=encoding)
-    except UnicodeDecodeError:
-        # Starszy CSV z polskiego Excela na Windows.
-        return pd.read_csv(path, sep=None, engine="python", encoding="cp1250")
+    # BOM rozstrzyga UTF-16; uszkodzonego UTF-16 nie interpretujemy jako ANSI.
+    encodings = ("utf-16",) if prefix.startswith((b"\xff\xfe", b"\xfe\xff")) else ("utf-8-sig", "cp1250")
+    for encoding in encodings:
+        try:
+            frame = pd.read_csv(path, sep=None, engine="python", encoding=encoding, **kwargs)
+        except UnicodeDecodeError as exc:
+            last_error = exc
+        else:
+            frame.attrs["csv_encoding"] = encoding
+            return frame
+    raise ValueError(
+        f"Nie można odczytać CSV {path.resolve()}: niepoprawne kodowanie. "
+        "Obsługiwane: UTF-8 (także BOM), Windows-1250 oraz UTF-16 z BOM. "
+        "Zapisz plik ponownie jako CSV UTF-8; znaki nie są pomijane ani zastępowane."
+    ) from last_error
 
 
 def load_branch_mapping(path: str | Path) -> tuple[dict[str, str], pd.DataFrame]:
-    mapping_df = pd.read_csv(path, dtype=str, encoding="utf-8-sig")
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(
+            f"Nie znaleziono pliku mapowania oddziałów: {source}. "
+            "Sprawdź SCIEZKA_MAPOWANIA lub opcję --mapping."
+        )
+    try:
+        # Bez tej kontroli pandas może uznać dodatkową kolumnę za indeks,
+        # przesuwając kod oddziału, miasto i status zamiast zgłosić wadliwy CSV.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", pd.errors.ParserWarning)
+            mapping_df = _read_csv_export(source, dtype=str, keep_default_na=False, index_col=False)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, pd.errors.ParserWarning, csv.Error, ValueError) as exc:
+        raise ValueError(
+            f"Nie można wczytać mapowania {source}: {exc}. "
+            "Oczekiwany CSV z nagłówkiem oddzial_code,punkt,status,uwaga "
+            "i separatorem przecinek, średnik lub tabulator."
+        ) from exc
+    encoding = mapping_df.attrs["csv_encoding"]
+    mapping_df.columns = [str(col).strip().lower() for col in mapping_df.columns]
+    if mapping_df.columns.duplicated().any() or any(
+        re.fullmatch(r"(oddzial_code|punkt|status)\.\d+", col) for col in mapping_df.columns
+    ):
+        raise ValueError(f"Powtórzone nagłówki w pliku mapowania {source}.")
     required = {"oddzial_code", "punkt", "status"}
     missing = required - set(mapping_df.columns)
     if missing:
-        raise ValueError(f"Plik mapowania nie ma kolumn: {sorted(missing)}")
+        raise ValueError(
+            f"Plik mapowania {source} nie ma kolumn: {sorted(missing)}. "
+            "Wymagane: oddzial_code, punkt, status. Sprawdź nagłówek i separator CSV."
+        )
+    for col in required:
+        mapping_df[col] = _clean_text(mapping_df[col])
+    mapping_df["status"] = mapping_df["status"].str.lower()
+    invalid_status = ~mapping_df["status"].isin(["active", "inactive"])
+    if invalid_status.any():
+        rows = (mapping_df.index[invalid_status] + 2).tolist()
+        raise ValueError(f"Niepoprawny status w mapowaniu {source}, wiersze {rows}: użyj active lub inactive.")
 
-    active_mask = mapping_df["status"].astype(str).str.lower().eq("active")
+    active_mask = mapping_df["status"].eq("active")
+    bad_code = mapping_df["oddzial_code"].fillna("").map(_ascii_token).eq("")
+    bad_point = active_mask & mapping_df["punkt"].fillna("").map(_ascii_token).eq("")
+    if (bad_code | bad_point).any():
+        rows = (mapping_df.index[bad_code | bad_point] + 2).tolist()
+        raise ValueError(
+            f"Pusty kod oddziału lub punkt pogody w mapowaniu {source}, wiersze {rows}. "
+            "Każdy wpis musi mieć oddzial_code, a aktywny także punkt."
+        )
     active = mapping_df.loc[active_mask].copy()
+    if active.empty:
+        raise ValueError(f"Brak aktywnych mapowań w {source}. Uzupełnij punkt i ustaw status active.")
     active["_code_key"] = active["oddzial_code"].map(_ascii_token)
     conflicts = active.groupby("_code_key")["punkt"].nunique(dropna=False)
     conflicts = conflicts[conflicts.gt(1)]
     if not conflicts.empty:
         dup = active.loc[active["_code_key"].isin(conflicts.index), "oddzial_code"].tolist()
-        raise ValueError(f"Sprzeczne aktywne mapowania kodów oddziałów: {dup}")
+        raise ValueError(f"Sprzeczne aktywne mapowania kodów oddziałów w {source}: {dup}")
     unique_active = active.drop_duplicates("_code_key", keep="first")
+    mapping_df.attrs["mapping_path"] = str(source)
+    if encoding == "cp1250":
+        warnings.warn(
+            f"Mapowanie {source} odczytano jako Windows-1250 (nie UTF-8); "
+            "polskie znaki zachowano. Zalecany zapis w edytorze: UTF-8.",
+            UserWarning, stacklevel=2,
+        )
+    print(f"Mapowanie oddziałów: {source} | kodowanie: {encoding} | aktywne kody: {len(unique_active)}", flush=True)
     return dict(zip(unique_active["_code_key"], unique_active["punkt"])), mapping_df
 
 

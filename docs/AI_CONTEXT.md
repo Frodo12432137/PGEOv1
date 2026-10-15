@@ -43,7 +43,8 @@ Braku rekordu całego MDD nie da się wykryć samą sumą; temu służy kontrola
 Osiem kodów kanonicznych: `BIA`, `LUB`, `RZE`, `SKO`, `WAW`, `ZAM`, `ZEUD`, `ZEUE`.
 Mapowanie miast i aliasy są w
 [oddzial_miasto.csv](../mdd_forecasting/config/oddzial_miasto.csv).
-`LBU → LUB`, `RZ → RZE`, `ŁZE/LZE → ZEUE`; dwa łódzkie oddziały korzystają z Łodzi.
+`LBU → LUB`, `RZ → RZE`, `ZŁT/ZLT → ZEUD`, `ŁZE/LZE → ZEUE`;
+dwa łódzkie oddziały korzystają z Łodzi.
 MDD nie należy utożsamiać automatycznie z jednym klientem lub jedną umową.
 
 ## Pogoda i dostępność informacji
@@ -130,3 +131,12 @@ Kontrola odrzuca brak pokrycia walidacji/testu oddziału i wykrywa luki pomiędz
 pomiarami MDD w tej samej dobie, bez rozszerzania oczekiwanej obecności poza
 pierwszy/ostatni pomiar. Częściowa pogoda ma osobny status i kod 2.
 Nie wykonano treningu na rzeczywistych danych PGE ani połączenia z firmowym SQL.
+
+Zmiany 15 października 2026: użytkownik zgłosił błąd UTF-8 przy bajcie `0xa3`
+po edycji mapowania na Windows i brak kodu `ZŁT`. Potwierdził `ZŁT = Łódź teren`
+oraz `ŁZE = Łódź miasto`, oba z pogodą Łodzi. Dodano alias `ZŁT/ZLT → ZEUD`.
+Odczyt mapowania używa
+wspólnej obsługi CSV (UTF-8, Windows-1250, UTF-16 z BOM; przecinek/średnik/tabulator),
+waliduje statusy, nagłówki i aktywne wpisy, pokazuje pełną ścieżkę pliku.
+`SCIEZKA_MAPOWANIA` w launcherze treningu pozwala wybrać własny CSV.
+Algorytm prognozy i kryteria doboru modeli pozostają te same.

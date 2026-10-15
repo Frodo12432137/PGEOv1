@@ -58,3 +58,5 @@ i brak wiedzy o umowie od stwierdzonej zmiany pomiarów.
 Po zmianie importu/czasu sprawdź `tests.test_branch_forecasting`; po zmianie
 portfela `tests.test_portfolio`. Zmiana wspólnego `io.py` wymaga też sprawdzenia
 starszego przepływu w `tests.test_mdd_forecasting`.
+Po zmianie CSV/mapowania sprawdź `tests.test_branch_mapping`: kodowania,
+separatory, ścieżki, konflikty i aliasy Łodzi `ZŁT/ZLT → ZEUD`, `ŁZE/LZE → ZEUE`.

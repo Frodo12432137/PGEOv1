@@ -8,6 +8,7 @@ Na początku tego pliku są wszystkie ustawienia użytkownika.
 SCIEZKA_ENERGII = r"C:\Dane\klienci.xlsx"
 FOLDER_MODELU = r"C:\Dane\model_bilansu"
 SCIEZKA_POGODY = r""  # puste: firmowy SQL
+SCIEZKA_MAPOWANIA = r""  # puste: mdd_forecasting/config/oddzial_miasto.csv
 ```
 
 Wklej ścieżkę do rzeczywistego Excela z historią pomiarów klientów w układzie
@@ -38,6 +39,36 @@ Zapisz ustawienia i kliknij **▶ Run Python File / Uruchom plik Python** w praw
 górnym rogu. W terminalu zobaczysz porównywane modele i końcowe błędy.
 Raporty i modele znajdziesz w `FOLDER_MODELU`. Nowy trening w tym samym folderze
 zastępuje jego pliki; do zachowania poprzedniego eksperymentu wybierz inny folder.
+
+## Mapowanie oddziałów i błędy CSV
+
+Domyślnie program czyta `mdd_forecasting/config/oddzial_miasto.csv` z katalogu
+pakietu, niezależnie od bieżącego folderu terminala. Jeśli używasz własnej kopii,
+ustaw `SCIEZKA_MAPOWANIA = r"C:\Dane\oddzial_miasto.csv"`. Ścieżki względne
+w launcherze są liczone od katalogu projektu. W CLI odpowiednikiem jest `--mapping`.
+Przy predykcji obowiązuje mapowanie zapisane z modelem; zmiana CSV wymaga treningu.
+
+Błąd `UnicodeDecodeError` z bajtem `0xa3` przy wymuszonym UTF-8 jest zgodny
+z zapisem polskiej litery `Ł` w Windows-1250. Poprawiony odczyt próbuje UTF-8,
+następnie Windows-1250, a UTF-16 rozpoznaje po BOM. Nie usuwa ani nie zastępuje
+znaków. Obsługuje przecinki, średniki i tabulatory. Inne lub uszkodzone kodowanie
+kończy się komunikatem z pełną ścieżką i zaleceniem zapisania pliku jako UTF-8.
+
+Program pokazuje ścieżkę użytego mapowania, kodowanie i liczbę aktywnych kodów.
+Sprawdza nagłówki `oddzial_code`, `punkt`, `status`, puste pola aktywnych wpisów,
+statusy `active`/`inactive` i sprzeczne przypisania tego samego kodu.
+Nowy kod w Excelu wymaga potwierdzenia miasta i wpisu ze statusem `active`.
+Nieznane kody są zgłaszane z przykładami arkusza/wiersza i kluczami po normalizacji.
+
+W aktualnym mapowaniu są już potwierdzone przez użytkownika wpisy dla Łodzi:
+
+```csv
+ZŁT,Łódź,active,Łódź teren
+ŁZE,Łódź,active,Łódź miasto
+```
+
+`ZŁT`/`ZLT` są aliasami `ZEUD`, a `ŁZE`/`LZE` aliasami `ZEUE`.
+Wspólna pogoda nie łączy pomiarów tych dwóch oddziałów w jeden bilans.
 
 ## Dobór modelu i pogody
 

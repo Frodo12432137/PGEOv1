@@ -30,7 +30,7 @@ def _options(settings: dict | None) -> list[str]:
 
 def configured_launch(training: bool, energy: str = "", artifacts_dir: str = "model_bilansu",
                       weather_file: str = "", output_dir: str = "", options: dict | None = None,
-                      weather_options: dict | None = None, as_of: str = "") -> int:
+                      weather_options: dict | None = None, as_of: str = "", mapping_file: str = "") -> int:
     """Ścieżki ustawione w kodzie omijają GUI; względne są względem repo, nie cwd VS Code."""
     from .branch_database import DEFAULT_BRANCH_SQL
     from .branch_cli import train_main, predict_main
@@ -61,6 +61,8 @@ def configured_launch(training: bool, energy: str = "", artifacts_dir: str = "mo
         arguments = ["--artifacts-dir", _path(artifacts_dir)]
         if energy:
             arguments += ["--energy", _path(energy)]
+        if training and str(mapping_file).strip():
+            arguments += ["--mapping", _path(str(mapping_file).strip())]
         arguments += ["--weather", _path(weather_file)] if weather_file else ["--weather-sql", str(DEFAULT_BRANCH_SQL)]
         arguments += _options(weather_options)
         arguments += _options(options)

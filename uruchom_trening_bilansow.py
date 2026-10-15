@@ -9,6 +9,7 @@ from mdd_forecasting.branch_launcher import configured_launch
 SCIEZKA_ENERGII = r""  # Wklej np. r"C:\Dane\klienci.xlsx". Puste = okno wyboru.
 FOLDER_MODELU = r"model_bilansu"  # Tu powstaną modele, Excel i wszystkie CSV.
 SCIEZKA_POGODY = r""  # Puste = firmowy SQL. Inaczej archiwum wydań CSV/XLSX.
+SCIEZKA_MAPOWANIA = r""  # Puste = mdd_forecasting/config/oddzial_miasto.csv.
 
 # ================== MODEL I DOKŁADNOŚĆ ==================
 PARAMETRY = {
@@ -46,5 +47,6 @@ POGODA_SQL = {"sql_owner": None, "sql_weather_type": None}
 if __name__ == "__main__":
     raise SystemExit(configured_launch(
         training=True, energy=SCIEZKA_ENERGII, artifacts_dir=FOLDER_MODELU,
-        weather_file=SCIEZKA_POGODY, options=PARAMETRY, weather_options=POGODA_SQL,
+        weather_file=SCIEZKA_POGODY, mapping_file=SCIEZKA_MAPOWANIA,
+        options=PARAMETRY, weather_options=POGODA_SQL,
     ))
