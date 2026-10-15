@@ -18,6 +18,14 @@ BRANCH_ALIASES = {"LBU": "LUB", "ŁZE": "ZEUE", "LZE": "ZEUE", "ZŁT": "ZEUD", "
 BRANCHES = ("BIA", "LUB", "RZE", "SKO", "WAW", "ZAM", "ZEUD", "ZEUE")
 
 
+class EnergyTimeError(ValueError):
+    """Walidacja czasu z rekordami do lokalnego raportu w launcherze."""
+
+    def __init__(self, message: str, records: pd.DataFrame):
+        super().__init__(message)
+        self.records = records
+
+
 def utc_timestamp(value: object, timezone: str = "Europe/Warsaw") -> pd.Timestamp:
     ts = pd.Timestamp(value)
     if pd.isna(ts):
@@ -106,7 +114,8 @@ def _energy_examples(frame: pd.DataFrame, mask) -> list[dict]:
     columns = [col for col in [
         "source_sheet", "source_row", "oddzial_code", "klient_nazwa",
         "kierunek_code_zrodlowy", "kierunek_code", "kierunek_energii",
-        "doba_handlowa", "godzina_handlowa", "rodzaj", "wartosc_rzeczywista",
+        "doba_handlowa_zrodlowa", "godzina_handlowa_zrodlowa",
+        "doba_handlowa", "godzina_handlowa", "powod_bledu_czasu", "rodzaj", "wartosc_rzeczywista",
     ] if col in frame]
     return frame.loc[mask, columns].head(5).to_dict("records")
 
@@ -146,8 +155,24 @@ def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw"
     if (~df["rodzaj_rank"].isin(range(5))).any():
         raise ValueError("Rodzaj danych musi być liczbą od 0 do 4.")
     df["target_time_utc"] = trade_time_utc(df["doba_handlowa"], df["godzina_handlowa"], timezone)
-    if df["target_time_utc"].isna().any():
-        raise ValueError("Niepoprawna data/godzina energii. Sprawdź numerację 23/25 godzin podczas zmiany czasu.")
+    invalid_time = df["target_time_utc"].isna()
+    if invalid_time.any():
+        problems = df.loc[invalid_time].copy()
+        h = problems["godzina_handlowa"]
+        invalid_hour = (~(h.between(1, 25) & h.mod(1).eq(0))).fillna(True)
+        problems["powod_bledu_czasu"] = np.select(
+            [problems["doba_handlowa"].isna().to_numpy(dtype=bool), invalid_hour.to_numpy(dtype=bool), h.eq(25).fillna(False).to_numpy(dtype=bool)],
+            ["nierozpoznana lub pusta data F", "H musi być liczbą całkowitą od 1 do 25",
+             "godzina 25 poza dodatkową jesienną godziną zmiany czasu"],
+            default="lokalna godzina nie istnieje podczas wiosennej zmiany czasu",
+        )
+        raise EnergyTimeError(
+            f"Niepoprawna data/godzina energii. Liczba rekordów: {len(problems)}. "
+            f"Powody: {problems['powod_bledu_czasu'].value_counts().to_dict()}. "
+            f"Przykłady z oryginalnymi F/H i numerami wierszy: {_energy_examples(problems, slice(None))}. "
+            "Nie usunięto tych rekordów. Sprawdź format dat F i numerację godzin H (23/25 przy zmianie czasu).",
+            problems,
+        )
     if df["wartosc_rzeczywista"].lt(0).any():
         raise ValueError("Pobranie/oddanie ma ujemną wartość. Znaku nie odwracamy automatycznie.")
     if df["wartosc_rzeczywista"].isin([np.inf, -np.inf]).any():

@@ -22,6 +22,9 @@ i ODBC Driver 17. Do pracy z eksportem ustaw np.
 `SCIEZKA_POGODY = r"C:\Dane\pogoda_historia.csv"`. To musi być archiwum wydań,
 z czasem celu oraz czasem dostępności każdej prognozy. Samo ostatnie wydanie
 nie wystarczy do historycznej oceny 72 h.
+Można też wpisać ścieżkę do własnego pliku `.sql` w `SCIEZKA_POGODY`:
+launcher rozpoznaje rozszerzenie i wykonuje zapytanie przez pyodbc.
+Nie interpretuje pliku SQL jako eksportu pogody.
 
 Zainstaluj podstawowe biblioteki w terminalu VS Code:
 
@@ -202,6 +205,15 @@ Wersja scikit-learn, a przy wybranym CatBoost również jego wersja, musi być
 zgodna z treningiem. Aby korzystać z nowego porównywania modeli, wykonaj trening.
 
 ## Kontrole danych i granice oceny
+
+Niepoprawna doba/godzina jest zgłaszana z liczbą rekordów i przyczyną:
+nierozpoznana data F, niecałkowite H/zakres poza 1–25, godzina 25 poza jesienną
+zmianą czasu lub nieistniejąca lokalna godzina wiosną. Komunikat zawiera arkusz,
+numer wiersza oraz `doba_handlowa_zrodlowa` i `godzina_handlowa_zrodlowa`.
+Przy uruchomieniu skryptem VS Code pełna lista problematycznych rekordów trafia
+do `FOLDER_MODELU/bledne_daty_godziny.csv`, obok logu `blad_bilansow.txt`.
+Godziny są czytane jako liczby, bez wycinania pierwszej cyfry z dowolnego tekstu.
+Błąd nie powoduje automatycznego usunięcia pomiaru ani przesunięcia godziny.
 
 Kierunek energii wyznacza tylko kolumna B: `1` czynne pobranie, `-1` czynne oddanie.
 Opis E nie jest używany do klasyfikacji, filtrowania ani zastępowania brakującego B.

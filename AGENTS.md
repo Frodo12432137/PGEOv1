@@ -64,6 +64,7 @@ python -m pip install -r mdd_forecasting/requirements.txt
 python -m unittest tests.test_portfolio tests.test_branch_forecasting tests.test_mdd_forecasting -v
 python -m unittest tests.test_branch_training_tools -v
 python -m unittest tests.test_branch_mapping -v
+python -m unittest tests.test_energy_input_diagnostics -v
 ```
 
 Uruchamiaj sprawdzenia odpowiednie do zmiany. Same opisy i skille wymagają

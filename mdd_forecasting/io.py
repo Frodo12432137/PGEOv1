@@ -226,9 +226,9 @@ def normalize_energy(
     df["wartosc_rzeczywista"] = _numeric(df["wartosc_rzeczywista"])
     df["kierunek_code_zrodlowy"] = df["kierunek_code"].copy()
     df["kierunek_code"] = _numeric(df["kierunek_code"])
-    df["godzina_handlowa"] = _numeric(
-        df["godzina_handlowa"].astype("string").str.extract(r"(\d+)", expand=False)
-    )
+    df["doba_handlowa_zrodlowa"] = df["doba_handlowa"].copy()
+    df["godzina_handlowa_zrodlowa"] = df["godzina_handlowa"].copy()
+    df["godzina_handlowa"] = _numeric(df["godzina_handlowa"])
     df["doba_handlowa"] = pd.to_datetime(df["doba_handlowa"], errors="coerce").dt.normalize()
 
     # Potwierdzony kontrakt eksportu: wyłącznie B określa kierunek energii czynnej.
@@ -240,7 +240,7 @@ def normalize_energy(
     df["punkt"] = df["_oddzial_key"].map(branch_mapping).astype("string")
     df["_punkt_key"] = df["punkt"].map(_ascii_token)
 
-    normal_hour = df["godzina_handlowa"].between(1, 24, inclusive="both")
+    normal_hour = df["godzina_handlowa"].between(1, 24, inclusive="both") & df["godzina_handlowa"].mod(1).eq(0)
     df["valid_timestamp"] = pd.NaT
     df.loc[normal_hour, "valid_timestamp"] = (
         df.loc[normal_hour, "doba_handlowa"]

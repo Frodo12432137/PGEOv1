@@ -150,3 +150,17 @@ Korekty i duplikaty nadal rozróżnia klucz oddział/MDD/kierunek B/godzina UTC.
 Sprzecznych wartości najlepszej korekty nie sumujemy; błąd pokazuje rekordy.
 Po zmianie znaczenia kierunku należy ponowić trening. Nie zmieniano algorytmów
 uczenia ani parametrów CatBoost.
+
+Kolejne zgłoszenie 15 października 2026 dotyczyło niepoprawnej daty/godziny.
+Użytkownik potwierdził liczbowy zapis H od 1 do 25; nie przekazał jeszcze
+przykładów F. Bez tych danych nie zmieniano interpretacji dat ani konwencji DST.
+W próbie syntetycznej domyślny `pd.to_datetime` błędnie odczytał `01.07.2024`
+jako 7 stycznia i odrzucił `15.07.2024`; mieszane ISO z czasem/bez także dały NaT.
+Trzeba porównać te przypadki z rzeczywistymi F przed wyborem reguły parsera.
+Dodano oryginalne F/H do diagnostyki i raport `bledne_daty_godziny.csv`
+w folderze artefaktów przy uruchomieniu przez launcher. Powody odróżniają brak
+daty, niecałkowite/niepoprawne H i nieistniejące godziny zmiany czasu.
+Naprawiono odczyt H, który wcześniej wycinał pierwszą liczbę z dowolnego tekstu.
+`SCIEZKA_POGODY` rozpoznaje teraz `.sql` jako zapytanie (na zdjęciu użytkownik
+wpisał tę ścieżkę w miejsce pliku eksportu). Puste ustawienie nadal wybiera
+domyślny SQL, a CSV/XLSX pozostają eksportami pogody.

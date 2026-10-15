@@ -8,7 +8,7 @@ from mdd_forecasting.branch_launcher import configured_launch
 # ================== TWOJE PLIKI ==================
 SCIEZKA_ENERGII = r""  # Wklej np. r"C:\Dane\klienci.xlsx". Puste = okno wyboru.
 FOLDER_MODELU = r"model_bilansu"  # Tu powstaną modele, Excel i wszystkie CSV.
-SCIEZKA_POGODY = r""  # Puste = firmowy SQL. Inaczej archiwum wydań CSV/XLSX.
+SCIEZKA_POGODY = r""  # Puste = domyślny SQL. Można też podać własny .sql lub archiwum CSV/XLSX.
 SCIEZKA_MAPOWANIA = r""  # Puste = mdd_forecasting/config/oddzial_miasto.csv.
 
 # ================== MODEL I DOKŁADNOŚĆ ==================

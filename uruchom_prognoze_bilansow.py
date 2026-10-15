@@ -3,7 +3,7 @@ from mdd_forecasting.branch_launcher import configured_launch
 
 
 FOLDER_MODELU = r"model_bilansu"  # Ten sam folder, do którego zapisał trening.
-SCIEZKA_POGODY = r""  # Puste = firmowy SQL; inaczej CSV/XLSX z aktualnymi wydaniami.
+SCIEZKA_POGODY = r""  # Puste = domyślny SQL; własny .sql lub CSV/XLSX z aktualnymi wydaniami.
 SCIEZKA_ENERGII = r""  # Opcjonalny Excel do audytu portfela. Puste = historia treningu.
 FOLDER_PROGNOZY = r""  # Puste = osobny folder model_bilansu/prognozy/data_czas.
 CHWILA_PROGNOZY = ""  # Puste = teraz; przykład: "2026-10-14T10:30:00+02:00".
