@@ -7,7 +7,7 @@ osobno dla ośmiu oddziałów/OSD. Horyzont domyślny to następne 72 pełne god
 Trening zapisuje modele; predykcję można uruchamiać kilka razy dziennie bez uczenia.
 Odpowiadaj użytkownikowi po polsku i opisuj wynik oraz ograniczenia prostym językiem.
 
-Te instrukcje dotyczą `mdd_forecasting/`, trzech programów `uruchom_*` tego
+Te instrukcje dotyczą `mdd_forecasting/`, programów `uruchom_*` tego
 modelu, jego testów i dokumentacji. Jeśli checkout jest częścią większego
 workspace PGE, nie rozszerzaj zadania na inne projekty bez potrzeby.
 
@@ -65,6 +65,7 @@ python -m unittest tests.test_portfolio tests.test_branch_forecasting tests.test
 python -m unittest tests.test_branch_training_tools -v
 python -m unittest tests.test_branch_mapping -v
 python -m unittest tests.test_energy_input_diagnostics -v
+python -m unittest tests.test_energy_hour_audit -v
 ```
 
 Uruchamiaj sprawdzenia odpowiednie do zmiany. Same opisy i skille wymagają

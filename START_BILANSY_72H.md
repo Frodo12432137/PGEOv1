@@ -186,6 +186,12 @@ ma numer 25. Nie jest to północ następnego dnia. Wiosenna nieistniejąca 02:0
 nie może być zwykłym rekordem godziny 3. Jeśli Excel stosuje inną numerację,
 trzeba dostosować ją do faktycznych kluczy hurtowni.
 
+W zgłoszeniu z 15 października 2026 wystąpiła H3 w dniu `2024-03-31`.
+Znaczenie tej etykiety w eksporcie pozostaje do sprawdzenia. Uruchom
+`uruchom_diagnostyke_godzin.py` strzałką ▶, aby porównać wzorce bez SQL i
+treningu. Sam jesienny zestaw 1–25 pasuje do obu wariantów i nie wyjaśnia
+znaczenia H25. [Instrukcja diagnostyki](DIAGNOSTYKA_GODZIN.md).
+
 Nie potwierdzono na samych zdjęciach, czy czas źródła zawsze jest czasem
 udostępnienia w bazie. Jeśli istnieje późniejszy czas ingestii, on również musi
 ograniczać dostępność prognozy.

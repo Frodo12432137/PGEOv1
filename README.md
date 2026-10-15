@@ -25,6 +25,10 @@ horyzontu i warunków pogody, największe pomyłki, porównanie z profilem oraz 
 `models="auto"` porównuje HistGradientBoosting i opcjonalnie CatBoost; jego instalacja:
 `python -m pip install -r mdd_forecasting/requirements-production.txt`.
 
+Przy błędzie godzin uruchom **`uruchom_diagnostyke_godzin.py`** strzałką ▶.
+Skrypt pobierze ścieżkę energii z konfiguracji treningu i porówna numerację w
+dniach zmiany czasu, bez SQL i uczenia. [Uruchomienie i raporty](DIAGNOSTYKA_GODZIN.md).
+
 ## Dla AI rozwijających projekt
 
 Zacznij od **[AGENTS.md](AGENTS.md)**. [Kontekst projektu](docs/AI_CONTEXT.md)

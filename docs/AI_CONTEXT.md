@@ -173,3 +173,16 @@ z dodatkową 02:00 oznaczoną jako 25. Nie zmieniono tej konwencji bez odpowiedz
 Naprawiono niezależny błąd zakresu: `start_date` jest stosowane przed walidacją
 i agregacją, a nie po nich. Rozpoznane starsze doby są zliczane jako
 `przed_data_startowa`; nierozpoznane daty nadal wywołują diagnostykę.
+
+Następnie użytkownik wycofał pewność co do numeracji kolejnych rzeczywistych
+godzin: „znaczy nie wiem wsm, zrób diagnostykę tego to się dowiemy”.
+Nie traktuj wcześniejszego „tak” jako potwierdzonego kontraktu DST.
+Dodano [diagnostykę godzin](../DIAGNOSTYKA_GODZIN.md) i skrypt
+`uruchom_diagnostyke_godzin.py`, przejmujący ścieżki z lokalnego launchera
+treningu. Audyt bada cały eksport bez `start_date`, SQL, wyboru korekt i uczenia.
+Porównuje wiosenne wzorce 1–23 oraz 1,2,4…24 osobno dla doby/oddziału/MDD/B/G.
+Jesienne 1–25 nie rozstrzyga znaczenia H25; potrzebny może być opis eksportu
+lub niezależny znacznik UTC. Zera nie są automatycznie technicznymi wypełnieniami.
+Skrypt zapisuje podsumowanie bez nazw MDD oraz lokalne szczegółowe CSV.
+Przeliczanie czasu treningu, predykcji i pogody pozostaje bez zmian do analizy
+rzeczywistego raportu. W chmurze nadal nie ma rzeczywistego pliku energii PGE.

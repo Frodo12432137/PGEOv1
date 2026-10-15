@@ -37,6 +37,14 @@ Jeśli ingestia jest późniejsza od czasu źródła, uwzględnij rzeczywistą d
 
 Łącz po UTC; sprawdź lokalną numerację handlową 23/25 godzin w `Europe/Warsaw`.
 Jednostki energii i promieniowania trzeba potwierdzić, nie odgadywać.
+Jeśli numeracja H jest nieznana, użyj `uruchom_diagnostyke_godzin.py` lub
+`python -m mdd_forecasting.energy_time_diagnostics --energy PLIK --output-dir FOLDER`.
+Audyt czyta cały eksport, również przed start_date, bez SQL i treningu.
+Porównuje wiosenne 1–23 z 1,2,4…24 osobno dla doby/oddziału/MDD/B/G.
+Jesienne 1–25 i kolejność wierszy nie rozstrzygają znaczenia H25. Nie uznawaj
+zer za techniczne wypełnienie bez potwierdzenia i nie zmieniaj konwencji modelu
+wyłącznie na podstawie pasującego zestawu etykiet. Odczytaj podsumowanie
+`FOLDER_MODELU/diagnostyka_godzin/podsumowanie_godzin.txt` i sprawdź szczegóły.
 Konflikty źródeł pogody rozwiązuj przez potwierdzenie właściciela/typu i filtry
 `--sql-owner`/`--sql-weather-type`, nie losowe usunięcie wiersza.
 

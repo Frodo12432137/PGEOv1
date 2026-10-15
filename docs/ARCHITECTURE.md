@@ -26,6 +26,8 @@ flowchart TD
 |---|---|
 | [`uruchom_trening_bilansow.py`](../uruchom_trening_bilansow.py) | wejście przez strzałkę VS Code; wybór plików/folderu |
 | [`uruchom_prognoze_bilansow.py`](../uruchom_prognoze_bilansow.py) | powtarzalna predykcja z zapisanego modelu |
+| [`uruchom_diagnostyke_godzin.py`](../uruchom_diagnostyke_godzin.py) | audyt całego eksportu F/H strzałką VS Code, bez SQL i treningu |
+| [`energy_time_diagnostics.py`](../mdd_forecasting/energy_time_diagnostics.py) | wzorce godzin w dniach DST, porównanie hipotetycznych UTC i lokalne raporty źródłowe; nie ustawia konwencji modelu |
 | [`branch_launcher.py`](../mdd_forecasting/branch_launcher.py) | konfiguracja ze ścieżek w kodzie, opcje CLI, opcjonalne okna tkinter |
 | [`train.py`](../mdd_forecasting/train.py), [`predict.py`](../mdd_forecasting/predict.py) | modułowe wejścia CLI |
 | [`branch_cli.py`](../mdd_forecasting/branch_cli.py) | opcje CLI, przepływ operacji i zapis CSV |
@@ -90,6 +92,7 @@ Kod 0 nie jest potwierdzeniem aktualnych umów ani dokładności prognozy.
 | [`test_branch_training_tools.py`](../tests/test_branch_training_tools.py) | konfiguracja ścieżek, luki, kierunek wyłącznie z B mimo opisów E, pokrycie testu, statystyki/Excel, częściowa pogoda i opcjonalny CatBoost |
 | [`test_branch_mapping.py`](../tests/test_branch_mapping.py) | kodowania i separatory CSV, walidacja mapowania, ścieżki, aliasy Łodzi i audyt z zapisanym mapowaniem |
 | [`test_energy_input_diagnostics.py`](../tests/test_energy_input_diagnostics.py) | oryginalne F/H i przyczyny błędów, 25 godzin jesienią, rozpoznawanie SQL/eksportu pogody |
+| [`test_energy_hour_audit.py`](../tests/test_energy_hour_audit.py) | oba wiosenne wzorce, nierozstrzygająca jesień, braki/zera/konflikty, rozdzielenie serii i korekt, odczyt CSV/XLSX oraz raport bez zmiany wejścia |
 
 Przykłady poleceń są w instrukcji i skillach. Aktualny zestaw opcji sprawdzisz przez
 `python -m mdd_forecasting.train --help` oraz

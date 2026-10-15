@@ -220,6 +220,12 @@ do `FOLDER_MODELU/bledne_daty_godziny.csv`, obok logu `blad_bilansow.txt`.
 Godziny są czytane jako liczby, bez wycinania pierwszej cyfry z dowolnego tekstu.
 Błąd nie powoduje automatycznego usunięcia pomiaru ani przesunięcia godziny.
 
+Gdy nie wiadomo, jak eksport numeruje godziny przy zmianie czasu, uruchom
+`uruchom_diagnostyke_godzin.py` przez ▶. Puste ustawienia przejmują ścieżkę
+energii i folder modelu z konfiguracji treningu. Raport całego eksportu powstaje
+w `FOLDER_MODELU/diagnostyka_godzin/podsumowanie_godzin.txt`; sam audyt
+nie wymaga SQL i nie zmienia numeracji. [Szczegóły diagnostyki](DIAGNOSTYKA_GODZIN.md).
+
 Kierunek energii wyznacza tylko kolumna B: `1` czynne pobranie, `-1` czynne oddanie.
 Opis E nie jest używany do klasyfikacji, filtrowania ani zastępowania brakującego B.
 Nazwy energii biernej w E nie blokują treningu, jeżeli B jest poprawne.

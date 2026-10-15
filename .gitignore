@@ -28,3 +28,4 @@ venv/
 manifest_oddzialy.json
 *.log
 blad_*.txt
+podsumowanie_godzin.txt
