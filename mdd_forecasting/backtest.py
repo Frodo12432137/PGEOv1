@@ -68,20 +68,26 @@ def score_origin(bundle: dict, weather: pd.DataFrame, energy: pd.DataFrame, orig
     wx = weather.loc[weather.weather_valid_time_utc.between(first, last)]
     production_balance, details = predict_branches(bundle, wx, origin)
     keys = ["oddzial_code", "kierunek_energii_norm", "target_time_utc"]
-    details = details.merge(energy[[*keys, "wartosc_rzeczywista"]], on=keys, how="left", validate="many_to_one")
+    optional = [name for name in ["liczba_odrzuconych_pomiarow", "status_jakosci_energii"] if name in energy]
+    details = details.merge(energy[[*keys, "wartosc_rzeczywista", *optional]], on=keys, how="left", validate="many_to_one")
+    if "liczba_odrzuconych_pomiarow" not in details:
+        details["liczba_odrzuconych_pomiarow"] = 0
+    details["liczba_odrzuconych_pomiarow"] = details.liczba_odrzuconych_pomiarow.fillna(0).astype(int)
     exclude = bundle.get("input_schema", {}).get("exclude_dst_days", True)
     details["cel_wylaczony_DST"] = dst_target_mask(details.target_time_utc, bundle["settings"]["timezone"]) if exclude else False
     details["status_oceny"] = np.select(
-        [details.cel_wylaczony_DST, details.wartosc_rzeczywista.isna(), details.wartosc_przewidywana.isna()],
-        ["POMINIETA_DOBA_ZMIANY_CZASU", "BRAK_REALIZACJI", "BRAK_PROGNOZY"], default="OCENIONO")
+        [details.cel_wylaczony_DST, details.liczba_odrzuconych_pomiarow.gt(0), details.wartosc_rzeczywista.isna(), details.wartosc_przewidywana.isna()],
+        ["POMINIETA_DOBA_ZMIANY_CZASU", "POMIAR_WYKLUCZONY_FILTREM", "BRAK_REALIZACJI", "BRAK_PROGNOZY"], default="OCENIONO")
     balance = balance_table(details, ["wartosc_rzeczywista", "wartosc_przewidywana", "wartosc_bazowa"])
     merge_keys = ["oddzial_code", "target_time_utc", "forecast_origin_utc"]
     balance = balance.merge(production_balance[[*merge_keys, "status", "status_portfela"]],
                             on=merge_keys, how="left", validate="one_to_one")
+    counts = details.groupby(merge_keys, as_index=False).liczba_odrzuconych_pomiarow.sum()
+    balance = balance.merge(counts, on=merge_keys, how="left", validate="one_to_one")
     balance["cel_wylaczony_DST"] = dst_target_mask(balance.target_time_utc, bundle["settings"]["timezone"]) if exclude else False
     balance["status_oceny"] = np.select(
-        [balance.cel_wylaczony_DST, balance.bilans_wartosc_rzeczywista.isna(), balance.bilans_wartosc_przewidywana.isna()],
-        ["POMINIETA_DOBA_ZMIANY_CZASU", "BRAK_REALIZACJI", "BRAK_PROGNOZY"], default="OCENIONO")
+        [balance.cel_wylaczony_DST, balance.liczba_odrzuconych_pomiarow.gt(0), balance.bilans_wartosc_rzeczywista.isna(), balance.bilans_wartosc_przewidywana.isna()],
+        ["POMINIETA_DOBA_ZMIANY_CZASU", "POMIAR_WYKLUCZONY_FILTREM", "BRAK_REALIZACJI", "BRAK_PROGNOZY"], default="OCENIONO")
     return balance, details
 
 
@@ -122,6 +128,8 @@ def run_backtest(configuration: dict) -> int:
     from .branch_diagnostics import write_training_workbook
     from .backtest_report import write_backtest_reports
     from .portfolio import analyze_portfolio
+    from .energy_filter import filter_settings_from_options, prepare_training_energy, apply_energy_filter
+    from .branch_data import sum_branch_measurements
 
     run = Path(configuration["run_dir"])
     run.mkdir(parents=True, exist_ok=True)
@@ -135,6 +143,7 @@ def run_backtest(configuration: dict) -> int:
 
     parameters = configuration["parameters"]
     settings = settings_from_options(parameters)
+    filter_settings = filter_settings_from_options(parameters)
     train_start, train_end, origins = time_scope(configuration, settings)
     runtime = configuration.get("runtime", {})
     report_every = int(runtime.get("report_every_origins", 10))
@@ -149,7 +158,8 @@ def run_backtest(configuration: dict) -> int:
     energy, quality, mapping, measurements, excluded = load_branch_energy(
         configuration["energy"], config, return_measurements=True,
         start_date=configuration["train_from"], end_date=str(last_target.tz_convert(settings.timezone).date()),
-        exclude_dst_days=not parameters.get("include_dst_days", False), return_excluded_days=True)
+        exclude_dst_days=not parameters.get("include_dst_days", False), return_excluded_days=True,
+        exclude_negative_energy=filter_settings.exclude_negative_energy)
     training = energy.loc[energy.target_time_utc.ge(train_start) & energy.target_time_utc.lt(train_end)].copy()
     historical_measurements = measurements.loc[measurements.target_time_utc.ge(train_start)
                                                & measurements.target_time_utc.lt(train_end)].copy()
@@ -207,20 +217,30 @@ def run_backtest(configuration: dict) -> int:
         training_reports = joblib.load(cache / "raporty_treningu.joblib")
         update("GOTOWY_MODEL_Z_CACHE")
     else:
+        training, historical_measurements, filter_state, filter_reports, split_cutoff = prepare_training_energy(
+            training, historical_measurements, weather, settings, filter_settings)
         with threadpool_limits(limits=settings.threads):
             bundle, training_reports = train_branch_models(training, weather, settings,
-                                                            trial_cache=trials, progress=progress)
+                                                            trial_cache=trials, progress=progress, split_cutoff=split_cutoff)
+        bundle["energy_filter"] = filter_state
+        training_reports.update(filter_reports)
         grace = parameters.get("portfolio_grace_days", 14)
         portfolio = analyze_portfolio(historical_measurements, grace, ignored_dates=excluded.doba_handlowa)
         bundle.update(portfolio_reports=portfolio, portfolio_grace_days=grace,
                       input_schema={"sheet_regex": config.sheet_regex, "start_date": configuration["train_from"],
-                                    "exclude_dst_days": not parameters.get("include_dst_days", False)},
+                                    "exclude_dst_days": not parameters.get("include_dst_days", False),
+                                    "exclude_negative_energy": filter_settings.exclude_negative_energy},
                       backtest_training_scope={"od": configuration["train_from"], "do": configuration["train_to"]})
         training_reports.update(portfolio)
         training_reports["pominiete_dni_zmiany_czasu"] = excluded.loc[excluded.doba_handlowa.lt(train_end.tz_convert(settings.timezone).tz_localize(None))]
         save_bundle(bundle, cache / "trening")
         dump_atomic(training_reports, cache / "raporty_treningu.joblib")
         atomic_json(ready_file, {"pogoda_sha256": weather_hash})
+    measurements, all_filter_reports = apply_energy_filter(measurements, bundle["energy_filter"], settings.timezone)
+    energy = sum_branch_measurements(measurements, settings.timezone)
+    all_filter_reports["godziny_wykluczone_filtrem"] = energy.loc[energy.liczba_odrzuconych_pomiarow.gt(0)].copy()
+    for name, frame in all_filter_reports.items():
+        write_csv(frame, run / f"{name}.csv")
     destination = run / "trening"
     shutil.copytree(cache / "trening", destination)
     for name, frame in training_reports.items():
@@ -253,7 +273,7 @@ def run_backtest(configuration: dict) -> int:
                 update("RAPORT", gotowe_prognozy=number)
                 write_backtest_reports(bundle, pd.concat(details, ignore_index=True), pd.concat(balances, ignore_index=True),
                                        run, {**metadata, "gotowe_prognozy": number, "kompletny": number == len(origins)},
-                                       training_reports, excluded, max_html_origins)
+                                       {**training_reports, **all_filter_reports}, excluded, max_html_origins)
     combined = pd.concat(balances, ignore_index=True)
     eligible = combined.loc[~combined.cel_wylaczony_DST]
     assessed = eligible.status_oceny.eq("OCENIONO")

@@ -146,6 +146,11 @@ Nie używają pomiarów energii z przyszłości ani lagów nieznanych korekt.
 | `importance_rows` | maksymalna próbka testu do grupowej ważności pogody; 0 wyłącza |
 | `start_date` | pierwsza doba historii energii; użyta będzie część wspólna z pogodą |
 | `include_dst_days` | domyślnie `False`: pomijaj całe doby 23/25 h przed walidacją i agregacją energii |
+| `exclude_negative_energy` | domyślnie `True`: ujemny pomiar I staje się brakiem po wyborze korekty, bez odwracania znaku |
+| `exclude_energy_outliers` | domyślnie `True`: wyklucz bardzo wysokie pomiary względem własnej wcześniejszej historii MDD |
+| `energy_outlier_iqr_multiplier` | domyślnie 6: górny próg Q3 + 6 × IQR dodatnich pomiarów |
+| `energy_outlier_min_ratio` | domyślnie 3: górny próg nie jest niższy niż 3 × Q3; chroni prawie stałe serie przed nadmiernym filtrowaniem |
+| `energy_outlier_min_samples` | domyślnie 30 dodatnich pomiarów do wyznaczenia progu |
 | `validation_days` | długość okna wyboru wariantu i parametrów |
 | `test_days` | późniejsze okno niezależnej oceny; nie stroić według jego wyników |
 | `label_delay_hours` | embargo między targetami treningu a oceną; nie zastępuje czasu publikacji korekt |
@@ -187,6 +192,9 @@ pokazuje rzeczywiście wybraną rodzinę, pogodę, parametry oraz kolumny cech.
 | `Jakosc_pogody_zmienne`, `Jakosc_pogody_wydania` | braki, pokrycie, zakresy, wiek wydań i wyprzedzenie meteo |
 | `Rekomendacje_parametrow`, `Rekomendacje_pogody` | wybrane i zastosowane parametry oraz ranking zestawów pogody z wcześniejszej walidacji |
 | `Walidacja_OSD`, `Blad_a_wiek_pogody` | jakość każdego OSD na walidacji i błąd energii zależny od wieku pogody |
+| `Odrzucone_pomiary`, `Filtr_energii_licznosci` | które rekordy wykluczono i dlaczego, oryginalne wartości i liczności według OSD/kierunku/miesiąca |
+| `Progi_odstajacych`, `Kontrola_filtra_energii` | progi każdej serii i koniec wcześniejszej referencji |
+| `Godziny_wykluczone_filtrem` | które sumy OSD nie mogły zostać użyte po wykluczeniu składnika |
 
 Pełne odpowiedniki tabel są w CSV (separator `;`, przecinek dziesiętny, UTF-8 BOM).
 Excel ogranicza każdą tabelę do 20 000 wierszy; CSV zachowuje całość.
@@ -285,7 +293,7 @@ Różnice opisu E nie pozwalają sumować dwóch wersji tego samego pomiaru.
 Sprzeczne wartości najlepszej korekty są błędem z przykładami rekordów.
 Po zmianie reguły kierunku wykonaj ponowny trening na źródłowym eksporcie.
 
-Program odrzuca wartości nieskończone. Luka między pomiarami tego samego MDD w tej samej dobie powoduje
+Program nadal zgłasza wartości nieskończone jako błąd. Luka między pomiarami tego samego MDD w tej samej dobie powoduje
 brak sumy oddziału w tej godzinie. Nie zakładamy obecności przed pierwszym
 ani po ostatnim pomiarze MDD; do takich ocen potrzebne są dodatkowe informacje
 o kompletności eksportu i portfelu. Przerw nie uzupełniamy zerami.
@@ -294,3 +302,41 @@ Nie znamy hierarchii MDD sumarycznych/składowych ani czasu publikacji korekt.
 Lagi energii pozostają wyłączone, a ocena jest retrospektywna. Przed właściwym
 treningiem potwierdź jednostki, czas, numerację handlową i mapowanie oddziałów.
 Testy syntetyczne sprawdzają działanie programu, nie dokładność na portfelu PGE.
+
+## Ujemne i odstające pomiary energii
+
+Oba filtry są domyślnie włączone w treningu i backteście, także gdy starszy
+launcher użytkownika jeszcze nie zawiera nowych pozycji w `PARAMETRY`.
+Zmiany zachowują regułę kierunku B: `-1` to poprawne oddanie, a wartość I
+powinna być nieujemną ilością. **Ujemny bilans nie jest filtrowany.**
+
+Najpierw wybieramy korektę 4 > 3 > 2 > 1 > 0. Jeżeli wybrany pomiar jest
+ujemny lub odstający, staje się brakiem — bez zmiany znaku, zerowania albo
+zastępowania starszą wersją. Wykluczony rekord pozostaje w lokalnym raporcie
+`odrzucone_pomiary_energii.csv` z oryginalnym I, datą, MDD, wierszem źródłowym,
+powodem i użytym progiem. Jeżeli odpada składnik sumy, cała suma kierunku/OSD
+w tej godzinie pozostaje brakiem. Poprawny przeciwny kierunek nadal może być oceniony.
+
+Górny próg to `max(Q3 + k × (Q3 − Q1), Q3 × min_ratio)`, liczony na dodatnich
+pomiarach, domyślnie k=6 i min_ratio=3. Nie odcinamy stałego procenta wartości.
+Zera i małe dodatnie wartości pozostają. Priorytet progów: własne MDD/OSD/kierunek
+z rozróżnieniem miesiąca i lokalnej godziny, potem miesiąc, godzina i na końcu cała seria.
+Każdy poziom wymaga minimalnej liczby dodatnich obserwacji. Jeżeli referencji
+brakuje (nowe MDD, same zera lub za mało danych), nie zgadujemy progu innych
+klientów i pozostawiamy dodatni pomiar z jawnym statusem braku progu.
+
+Referencja kończy się **przed wewnętrzną walidacją z uwzględnieniem embargo**,
+a nie na końcu całego pliku. Granice walidacji i testu zostają zamrożone przed
+odfiltrowaniem szczytów. Zewnętrzny backtest i aktualny eksport przy predykcji
+stosują zapisane progi bez ponownego dopasowania. Zmiana filtra wymaga treningu.
+
+Metryki dotyczą realizacji po filtrze; wykluczone godziny pozostają w mianowniku
+pokrycia i mają status `POMIAR_WYKLUCZONY_FILTREM` w backteście. Statystyczny próg
+nie dowodzi błędu źródła i może wyłączyć rzeczywisty szczyt, więc obejrzyj raport.
+Nie poprawiaj progu po obejrzeniu testu bez nowego okresu oceny. Pełna lista
+progów jest w CSV i modelu (`energy_filter`); Excel zawiera do 20 000 rekordów tabeli.
+
+`exclude_energy_outliers=False` wyłącza wykrywanie szczytów.
+`exclude_negative_energy=False` przywraca ścisły błąd dla ujemnego I.
+W CLI odpowiadają im `--no-exclude-energy-outliers` i `--no-exclude-negative-energy`.
+Starsze zapisane modele bez `energy_filter` zachowują wcześniejsze zachowanie audytu.

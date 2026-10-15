@@ -90,3 +90,8 @@ Rozszerzone rodziny, zespół i rekomendacje sprawdź w `tests.test_model_select
 Rekomendacje dotyczą wcześniejszej walidacji i są już zastosowane. Nie dobieraj
 nowych parametrów na backteście. Kontrola wejść pogodowych nie mierzy trafności
 prognozy meteo bez niezależnych obserwacji.
+Filtr energii jest dopasowany przed wewnętrzną walidacją przez
+`prepare_training_energy()`. Zachowaj zwrócony `split_cutoff` w wywołaniu core:
+odrzucenie ostatniej doby nie może przesunąć oceny do referencji filtra.
+Nie dopasowuj progów do walidacji, wewnętrznego testu ani zewnętrznego backtestu.
+Przekazuj wykluczenia do raportów i pokrycia; nie odrzucaj prognozowanych wierszy.

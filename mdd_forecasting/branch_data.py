@@ -93,7 +93,8 @@ def _empty_dst_report():
 
 def load_branch_energy(path: str | Path, config: PipelineConfig, return_measurements: bool = False,
                        *, start_date: object | None = None, exclude_dst_days: bool = False,
-                       return_excluded_days: bool = False, end_date: object | None = None):
+                       return_excluded_days: bool = False, end_date: object | None = None,
+                       exclude_negative_energy: bool = False):
     """Opcjonalny raport wyłączonych dób jest ostatnim elementem wyniku."""
     mapping, mapping_table = load_branch_mapping(config.mapping_path)
     raw = read_energy_file(path, sheet_regex=config.sheet_regex)
@@ -128,6 +129,7 @@ def load_branch_energy(path: str | Path, config: PipelineConfig, return_measurem
         }])], ignore_index=True)
     hourly, extra, measurements = aggregate_branch_energy(
         normalized, config.timezone, return_measurements=True, mapping_path=config.mapping_path,
+        exclude_negative_energy=exclude_negative_energy,
     )
     result = (hourly, pd.concat([quality, extra], ignore_index=True), mapping_table)
     if return_measurements:
@@ -135,7 +137,8 @@ def load_branch_energy(path: str | Path, config: PipelineConfig, return_measurem
     return (*result, excluded_days) if return_excluded_days else result
 
 
-def load_prediction_measurements(path: str | Path, bundle: dict, *, return_excluded_days: bool = False):
+def load_prediction_measurements(path: str | Path, bundle: dict, *, return_excluded_days: bool = False,
+                                 return_filter_reports: bool = False):
     # Przy predykcji używamy mapowania zapisanego z modelem, nie zmienionego słownika.
     mapping = {_ascii_token(row.oddzial_code): row.punkt for row in bundle["branches"].itertuples()}
     for alias, canonical in BRANCH_ALIASES.items():
@@ -148,7 +151,15 @@ def load_prediction_measurements(path: str | Path, bundle: dict, *, return_exclu
     excluded_days = _empty_dst_report()
     if bundle.get("input_schema", {}).get("exclude_dst_days", False):
         normalized, excluded_days = _without_dst_days(normalized, bundle["settings"]["timezone"])
-    _, _, measurements = aggregate_branch_energy(normalized, bundle["settings"]["timezone"], return_measurements=True)
+    _, _, measurements = aggregate_branch_energy(
+        normalized, bundle["settings"]["timezone"], return_measurements=True,
+        exclude_negative_energy=bundle.get("input_schema", {}).get("exclude_negative_energy", False))
+    reports = {}
+    if bundle.get("energy_filter"):
+        from .energy_filter import apply_energy_filter
+        measurements, reports = apply_energy_filter(measurements, bundle["energy_filter"], bundle["settings"]["timezone"])
+    if return_filter_reports:
+        return measurements, excluded_days, reports
     return (measurements, excluded_days) if return_excluded_days else measurements
 
 
@@ -193,7 +204,7 @@ def _energy_examples(frame: pd.DataFrame, mask) -> list[dict]:
 
 
 def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw", return_measurements: bool = False,
-                            *, mapping_path: str | Path | None = None):
+                            *, mapping_path: str | Path | None = None, exclude_negative_energy: bool = False):
     df = frame.copy()
     unknown = sorted(df.loc[df["oddzial_code"].notna() & df["punkt"].isna(), "oddzial_code"].unique())
     if unknown:
@@ -245,10 +256,6 @@ def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw"
             "Nie usunięto tych rekordów. Sprawdź format dat F i numerację godzin H (23/25 przy zmianie czasu).",
             problems,
         )
-    if df["wartosc_rzeczywista"].lt(0).any():
-        raise ValueError("Pobranie/oddanie ma ujemną wartość. Znaku nie odwracamy automatycznie.")
-    if df["wartosc_rzeczywista"].isin([np.inf, -np.inf]).any():
-        raise ValueError("Pomiar energii musi być skończoną liczbą albo brakiem wartości.")
     measurement = ["oddzial_code", "klient_nazwa", "kierunek_energii_norm", "target_time_utc"]
     highest = df.groupby(measurement, dropna=False)["rodzaj_rank"].transform("max")
     best = df.loc[df["rodzaj_rank"].eq(highest)].copy()
@@ -262,6 +269,33 @@ def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw"
             f"Przykłady: {_energy_examples(best, conflicting)}"
         )
     best = best.drop_duplicates(measurement, keep="last")
+    if best["wartosc_rzeczywista"].isin([np.inf, -np.inf]).any():
+        raise ValueError("Pomiar energii musi być skończoną liczbą albo brakiem wartości.")
+    negative = best.wartosc_rzeczywista.lt(0).fillna(False)
+    if negative.any() and not exclude_negative_energy:
+        raise ValueError("Pobranie/oddanie ma ujemną wartość. Znaku nie odwracamy automatycznie.")
+    best["wartosc_przed_filtracja"] = best.wartosc_rzeczywista.copy()
+    best["powod_wykluczenia_energii"] = np.where(negative, "UJEMNY_POMIAR", "")
+    best.loc[negative, "wartosc_rzeczywista"] = np.nan
+    hourly = sum_branch_measurements(best, timezone)
+    extra = pd.DataFrame([
+        ["poza_oddzialami", int((~relevant).sum()), "puste A; pomiary nie zostały przypisane na podstawie poprzedniego wiersza"],
+        ["odrzucone_korekty_i_duplikaty", len(df) - len(best), "wybrano najwyższy rodzaj 4 > 3 > 2 > 1 > 0"],
+        ["odrzucone_ujemne_pomiary", int(negative.sum()), "po wyborze korekt; bez odwracania znaku, zastępowania zerem i użycia starszej wersji"],
+        ["niepelne_sumy_oddzialu", int(hourly.wartosc_rzeczywista.isna().sum()), "co najmniej jeden pomiar MDD nie ma wiarygodnej wartości"],
+        ["luki_godzinowe_mdd_w_dobie", int(hourly["brakujace_rekordy_mdd"].sum()), "brak rekordu między pomiarami tego samego MDD w tej samej dobie; suma pozostaje brakiem"],
+        ["historia_korekt_bez_czasu_dostepnosci", len(best), "końcowe pomiary są targetem; nie są domyślnie używane jako lagi"],
+    ], columns=["kontrola", "liczba", "szczegoly"])
+    result = (hourly, extra)
+    return (*result, best) if return_measurements else result
+
+
+def sum_branch_measurements(measurements: pd.DataFrame, timezone: str) -> pd.DataFrame:
+    """Sumuj wybrane korekty; wykluczony składnik uniemożliwia wiarygodną sumę."""
+    best = measurements.copy()
+    if "powod_wykluczenia_energii" not in best:
+        best["powod_wykluczenia_energii"] = ""
+    best["_wykluczony"] = best.powod_wykluczenia_energii.ne("").astype(int)
     keys = ["oddzial_code", "punkt", "target_time_utc", "doba_handlowa", "godzina_handlowa", "kierunek_energii_norm"]
     grouped = best.groupby(keys, dropna=False)
     hourly = grouped.agg(
@@ -269,6 +303,7 @@ def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw"
         liczba_mdd=("klient_nazwa", "nunique"),
         liczba_wartosci=("wartosc_rzeczywista", "count"),
         rodzaj_min=("rodzaj_rank", "min"), rodzaj_max=("rodzaj_rank", "max"),
+        liczba_odrzuconych_pomiarow=("_wykluczony", "sum"),
     ).reset_index()
     gaps = _within_day_gaps(best, timezone)
     if not gaps.empty:
@@ -276,17 +311,13 @@ def aggregate_branch_energy(frame: pd.DataFrame, timezone: str = "Europe/Warsaw"
     else:
         hourly["brakujace_rekordy_mdd"] = 0
     hourly["brakujace_rekordy_mdd"] = hourly["brakujace_rekordy_mdd"].fillna(0).astype(int)
+    hourly["liczba_odrzuconych_pomiarow"] = hourly["liczba_odrzuconych_pomiarow"].fillna(0).astype(int)
     incomplete = hourly["liczba_wartosci"].ne(hourly["liczba_mdd"]) | hourly["brakujace_rekordy_mdd"].gt(0)
     hourly.loc[incomplete, "wartosc_rzeczywista"] = np.nan
-    extra = pd.DataFrame([
-        ["poza_oddzialami", int((~relevant).sum()), "puste A; pomiary nie zostały przypisane na podstawie poprzedniego wiersza"],
-        ["odrzucone_korekty_i_duplikaty", len(df) - len(best), "wybrano najwyższy rodzaj 4 > 3 > 2 > 1 > 0"],
-        ["niepelne_sumy_oddzialu", int(incomplete.sum()), "co najmniej jeden pomiar MDD nie ma wartości"],
-        ["luki_godzinowe_mdd_w_dobie", int(hourly["brakujace_rekordy_mdd"].sum()), "brak rekordu między pomiarami tego samego MDD w tej samej dobie; suma pozostaje brakiem"],
-        ["historia_korekt_bez_czasu_dostepnosci", len(best), "końcowe pomiary są targetem; nie są domyślnie używane jako lagi"],
-    ], columns=["kontrola", "liczba", "szczegoly"])
-    result = (hourly.sort_values(["target_time_utc", "oddzial_code", "kierunek_energii_norm"]), extra)
-    return (*result, best) if return_measurements else result
+    hourly["status_jakosci_energii"] = np.select(
+        [hourly.liczba_odrzuconych_pomiarow.gt(0), incomplete],
+        ["POMIARY_WYKLUCZONE_FILTREM", "BRAK_PELNEJ_SUMY"], default="OK")
+    return hourly.sort_values(["target_time_utc", "oddzial_code", "kierunek_energii_norm"])
 
 
 def prepare_weather_vintages(raw: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:

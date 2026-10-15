@@ -36,6 +36,8 @@ kliknij ▶. Ten sam model, osobny późniejszy okres oceny, bez limitu czasu i 
 Wyniki: interaktywny `raport_backtestu.html`, Excel z wykresami i pełne CSV.
 Błędy każdej godziny/OSD, miesiące z rozróżnieniem lat, mapa OSD × godzina,
 kontrola pogody i rekomendacje parametrów zastosowanych na podstawie walidacji.
+Ujemne i bardzo wysokie pomiary są domyślnie wykluczane z raportem, bez
+zerowania sum OSD. Progi MDD pochodzą tylko z początkowego treningu.
 **[Instrukcja krok po kroku](BACKTEST.md).** Całe doby zmiany czasu pozostają
 domyślnie wyłączone; dawny osobny audyt godzin został usunięty.
 

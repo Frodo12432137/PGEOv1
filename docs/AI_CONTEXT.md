@@ -247,3 +247,28 @@ Kontrola pogody mierzy kompletność, wiek wydań i podejrzane zakresy, nie
 meteorologiczną trafność: brak obserwacji meteo. Nie nazywaj tych kontroli
 błędem prognozy temperatury ani dowodem najlepszego modelu na rynku.
 Testy rzeczywistych bibliotek i zespołu: tests.test_model_selection.
+
+Kolejna decyzja użytkownika 15 października 2026, po błędzie ujemnego I:
+pomijać ujemne i odstające pomiary. Filtry są domyślnie włączone w CLI,
+launcherze i backteście, także gdy stary lokalny PARAMETRY nie ma nowych pól.
+B=-1 i ujemny bilans pozostają poprawne; filtr dotyczy ilości I.
+
+Po wyborze korekty zapisujemy oryginalną wartość i zastępujemy wykluczony
+składnik brakiem. Nie wybieramy starszej wersji i nie sumujemy tylko reszty
+MDD w OSD. Statystyczny filtr górnych ekstremów (nie procentowe odcięcie)
+używa max(Q3+6*IQR, 3*Q3) dodatniej referencji własnego MDD/kierunku/OSD,
+z hierarchią miesiąc+godzina, miesiąc, godzina, cała seria i minimum 30 pomiarów.
+Zera i małe dodatnie wartości pozostają, a nowe MDD bez referencji nie są
+filtrowane zgadywanym progiem innego klienta. Każde wykluczenie ma raport i próg.
+
+Referencja kończy się przed wewnętrzną walidacją z embargo. Granicę podziału
+wyznaczamy z dostępnej pogody przed filtrem i przekazujemy do core jako
+split_cutoff, żeby odrzucenie końca historii nie przesuwało walidacji do
+referencji filtra. Stan energy_filter jest zapisany w modelu; audyt i backtest
+stosują go bez refitu. Forecasty nie są usuwane; wykluczony target ma status
+POMIAR_WYKLUCZONY_FILTREM i obniża pokrycie. Miary są warunkowe po filtrze;
+statystyczny ekstremum może być rzeczywistym szczytem, więc zachowaj raport
+oryginałów i możliwość wyłączenia filtra. Nieskończone I, błędy B/czasu i
+sprzeczne najlepsze korekty nadal wymagają wyjaśnienia. Niskopoziomowy loader
+bez opcji pozostaje ścisły dla zgodności, CLI przekazuje nową politykę jawnie.
+Testy: tests.test_energy_filter. Źródłowy eksport nie jest zmieniany.

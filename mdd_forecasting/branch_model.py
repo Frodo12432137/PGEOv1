@@ -103,7 +103,9 @@ def settings_from_options(options: dict) -> TrainingSettings:
     if "weather_variants" in values:
         values["weather_variants"] = tuple(values["weather_variants"])
     names = {field.name for field in fields(TrainingSettings)}
-    extra = set(values) - names - {"start_date", "include_dst_days", "sheet_regex", "portfolio_grace_days"}
+    extra = set(values) - names - {"start_date", "include_dst_days", "sheet_regex", "portfolio_grace_days",
+                                  "exclude_negative_energy", "exclude_energy_outliers", "energy_outlier_iqr_multiplier",
+                                  "energy_outlier_min_ratio", "energy_outlier_min_samples"}
     if extra:
         raise ValueError(f"Nieznane parametry modelu: {sorted(extra)}")
     result = TrainingSettings(**{key: value for key, value in values.items() if key in names})
@@ -374,7 +376,7 @@ def _select_ensemble(settings, specs, features, fit_rows, validation, scales, ch
 
 
 def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: TrainingSettings,
-                        *, trial_cache: dict | None = None, progress=None):
+                        *, trial_cache: dict | None = None, progress=None, split_cutoff=None):
     settings.validate()
     if energy.empty:
         raise ValueError("Brak danych energii po filtrze dat.")
@@ -385,7 +387,7 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
     if data.empty:
         raise ValueError("Nie ma wspólnej historii energii i prognoz pogody dostępnych przed uruchomieniem.")
     branches = sorted(energy["oddzial_code"].unique().tolist())
-    cutoff = data["target_time_utc"].max().floor("D")
+    cutoff = data["target_time_utc"].max().floor("D") if split_cutoff is None else utc_timestamp(split_cutoff).floor("D")
     test_start = cutoff - pd.Timedelta(days=settings.test_days)
     validation_start = test_start - pd.Timedelta(days=settings.validation_days)
     embargo = pd.Timedelta(hours=settings.label_delay_hours)
@@ -570,6 +572,7 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
         ["poczatek_wspolnej_historii", 0, str(data["target_time_utc"].min())],
         ["poczatek_walidacji", 0, str(validation_start)],
         ["poczatek_testu", 0, str(test_start)],
+        ["stala_granica_podzialu_UTC", 0, str(cutoff)],
         ["embargo_pomiarow_h", settings.label_delay_hours, "założenie; Excel nie ma czasu udostępnienia korekty"],
         ["backtest_retrospektywny", 1, "targety są najlepszymi wersjami aktualnego eksportu; historyczna dostępność korekt nie jest znana"],
         ["lagi_energii", 0, "wyłączone do otrzymania historii czasów dostępności korekt"],

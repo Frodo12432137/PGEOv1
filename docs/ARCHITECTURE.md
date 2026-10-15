@@ -40,6 +40,7 @@ flowchart TD
 | [`branch_model.py`](../mdd_forecasting/branch_model.py) | cechy, dwa regresory, dobór wariantów, test, serializacja i prognoza |
 | [`branch_diagnostics.py`](../mdd_forecasting/branch_diagnostics.py) | diagnostyka odłożonego testu, porównanie z profilem, raport Excel i wykresy |
 | [`weather_quality.py`](../mdd_forecasting/weather_quality.py) | kompletność, zakresy i wiek pogody; rekomendacje wariantów wyłącznie z walidacji |
+| [`energy_filter.py`](../mdd_forecasting/energy_filter.py) | progi wysokich pomiarów MDD przed walidacją, wykluczenia i raporty, zapis reguły do audytu |
 | [`portfolio.py`](../mdd_forecasting/portfolio.py) | obecność MDD, przerwy, zmiany zestawów i statusy portfela |
 | [`oddzial_miasto.csv`](../mdd_forecasting/config/oddzial_miasto.csv) | przypisanie oddziałów do punktów pogody |
 
@@ -57,8 +58,18 @@ obsługują starszy przepływ MDD. Opisuje go [README pakietu](../mdd_forecastin
   `return_excluded_days=True` dodaje raport wykluczeń na końcu wyniku.
   `end_date` opcjonalnie ogranicza odczytaną historię przed walidacją; daty
   nierozpoznane nie są po cichu odrzucane.
+  `exclude_negative_energy=True` wyklucza ujemne I po wyborze korekty, zachowując
+  rekord i pierwotną wartość. CLI domyślnie włącza; niskopoziomowy odczyt jest
+  domyślnie ścisły dla zgodności. `sum_branch_measurements()` liczy pełne sumy
+  z wybranych wersji i nie pomija brakujących składników przy sumowaniu.
   `load_prediction_measurements()` używa filtra zapisanego w `input_schema`
   i opcjonalnie zwraca raport przez `return_excluded_days=True`.
+  `return_filter_reports=True` zwraca pomiary, wyłączone doby i raporty filtra.
+- `prepare_training_energy()` ustala granicę podziału jak historyczne zlecenia
+  pogodowe i kalibruje progi tylko na pomiarach przed walidacją i embargo.
+  Core otrzymuje zamrożony `split_cutoff`, aby wykluczenie końca historii nie
+  przesuwało walidacji do referencji filtra. `energy_filter` jest zapisany
+  w modelu. Backtest i audyt stosują te progi bez ponownego dopasowania.
 - `prepare_weather_vintages()` zachowuje wydania i normalizuje czasy.
   `join_weather_asof()` wybiera najnowsze wydanie dla punktu i celu z czasem
   dostępności nie większym niż origin. Nie wybiera pogody osobno względem czasu celu.
@@ -115,6 +126,7 @@ Kod 0 nie jest potwierdzeniem aktualnych umów ani dokładności prognozy.
 | [`test_dst_day_exclusion.py`](../tests/test_dst_day_exclusion.py) | całe doby 23/25 h, walidacja zwykłych dni, UTC bez kompresji, audyt bez fałszywych przerw, zapis reguły i trening bez wyłączonych celów w teście |
 | [`test_backtest.py`](../tests/test_backtest.py) | zgodność prognoz z produkcją, chronologia, embargo, odcięcie przyszłej energii/pogody, cache, raporty i twardy limit czasu |
 | [`test_model_selection.py`](../tests/test_model_selection.py) | rzeczywisty LightGBM/XGBoost i zapis zespołu, wybór wag na walidacji, miesiące z latami, błędy godzinowe i kontrola pogody |
+| [`test_energy_filter.py`](../tests/test_energy_filter.py) | ujemne po korektach, brak częściowej sumy, próg MDD bez przyszłości, zera i nowa seria, stałe okna, trening/backtest/audyt i raporty |
 
 Zewnętrzny backtest opisuje [BACKTEST.md](../BACKTEST.md). Trenuje raz na
 osobnym zakresie, następnie wywołuje `predict_branches()` dla kolejnych origins.

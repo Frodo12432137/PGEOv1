@@ -150,6 +150,8 @@ READ_ME = [
     ("Godziny", "Kazda_godzina zawiera każdą parę origin/cel/OSD/kierunek, błąd ze znakiem i bezwzględny. Względny pozostaje pusty przy zerowej realizacji."),
     ("Jakość pogody", "Kontrola kompletności, wieku i zakresów nie mierzy trafności meteorologicznej. Do jej oceny potrzeba niezależnych obserwacji meteo; tutaj ich brak."),
     ("Rekomendacje", "Model i zestaw pogody wybrano na wcześniejszej walidacji i już zastosowano. Nie dobieraj ich ponownie na podstawie późniejszego testu."),
+    ("Filtr energii", "Ujemne i bardzo wysokie pomiary MDD są wyłączone zgodnie z konfiguracją. Brak składnika oznacza brak sumy OSD, bez zerowania i starszej korekty. Progi pochodzą wyłącznie z treningu przed walidacją."),
+    ("Ocena po filtrze", "Miary dotyczą wiarygodnych realizacji po filtrze. Wykluczenia pozostają w mianowniku pokrycia. Statystyczny próg może wyłączyć rzeczywisty szczyt; sprawdź Odrzucone_pomiary i zakresy progów."),
 ]
 
 
@@ -233,6 +235,9 @@ def write_training_workbook(bundle: dict, reports: dict[str, pd.DataFrame], dest
         "jakosc_pogody_zmienne": "Jakosc_pogody_zmienne", "jakosc_pogody_wydania": "Jakosc_pogody_wydania",
         "rekomendacje_modelu": "Rekomendacje_parametrow", "rekomendacje_pogody": "Rekomendacje_pogody",
         "walidacja_osd": "Walidacja_OSD",
+        "odrzucone_pomiary_energii": "Odrzucone_pomiary", "podsumowanie_filtra_energii": "Filtr_energii_licznosci",
+        "progi_odstajacych_energii": "Progi_odstajacych", "kontrola_filtra_energii": "Kontrola_filtra_energii",
+        "godziny_wykluczone_filtrem": "Godziny_wykluczone_filtrem",
     }
     for key, name in sheets.items():
         if key in reports:

@@ -87,7 +87,9 @@ Inne lub brakujące wartości B zatrzymują import z liczbą problemów i przyk�
 rekordów, w tym arkuszem, numerem wiersza i oryginalnym kodem B.
 Różne opisy E nie tworzą osobnych pomiarów: te same najlepsze wersje o równej
 wartości są deduplikowane, a sprzeczne wartości są zgłaszane z przykładami.
-Ujemne wartości i nieznane oddziały pozostają błędami.
+Ujemne pomiary I są domyślnie wykluczane po wyborze korekty, bez zmiany znaku
+i sięgania po starszą wersję. Brak składnika oznacza brak wiarygodnej sumy OSD.
+Nieznane oddziały nadal wymagają wyjaśnienia. Ujemny bilans jest poprawny.
 Puste A nie jest uzupełniane poprzednim oddziałem.
 
 Domyślny trening, zgodnie z decyzją użytkownika, pomija całe doby 23/25 h

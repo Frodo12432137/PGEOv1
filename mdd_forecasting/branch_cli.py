@@ -54,6 +54,12 @@ def train_main(argv=None) -> int:
     parser.add_argument("--start-date", default="2024-07-01")
     parser.add_argument("--include-dst-days", action="store_true",
                         help="Włącz doby 23/25 h; domyślnie całe dni zmiany czasu są pomijane przed walidacją energii.")
+    parser.add_argument("--exclude-negative-energy", action=argparse.BooleanOptionalAction, default=True,
+                        help="Domyślnie ujemne pomiary są wykluczane po wyborze korekt, bez zerowania sumy.")
+    parser.add_argument("--exclude-energy-outliers", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--energy-outlier-iqr-multiplier", type=float, default=6.0)
+    parser.add_argument("--energy-outlier-min-ratio", type=float, default=3.0)
+    parser.add_argument("--energy-outlier-min-samples", type=int, default=30)
     parser.add_argument("--horizon-hours", type=int, default=72)
     parser.add_argument("--origin-step-hours", type=int, default=12)
     parser.add_argument("--validation-days", type=int, default=14)
@@ -105,29 +111,40 @@ def train_main(argv=None) -> int:
     energy, quality, mapping, measurements, excluded_days = load_branch_energy(
         args.energy, config, return_measurements=True, start_date=args.start_date,
         exclude_dst_days=not args.include_dst_days, return_excluded_days=True,
+        exclude_negative_energy=args.exclude_negative_energy,
     )
     directory = Path(args.artifacts_dir)
     directory.mkdir(parents=True, exist_ok=True)
     write_csv(excluded_days, directory / "pominiete_dni_zmiany_czasu.csv")
     write_csv(quality, directory / "kontrola_energii.csv")
-    if energy.empty:
-        raise ValueError("Brak pomiarów po filtrze daty startowej i dób zmiany czasu. Sprawdź pominiete_dni_zmiany_czasu.csv.")
+    write_csv(measurements.loc[measurements.powod_wykluczenia_energii.ne("")], directory / "odrzucone_pomiary_energii.csv")
+    if energy.empty or not energy.wartosc_rzeczywista.notna().any():
+        raise ValueError("Brak pomiarów po filtrze czasu i wartości. Sprawdź kontrola_energii.csv, pominiete_dni_zmiany_czasu.csv i odrzucone_pomiary_energii.csv.")
     origin = pd.Timestamp.now(tz="UTC")
     if energy["target_time_utc"].max() > origin:
         raise ValueError("Eksport ma realizacje energii z przyszłości. Sprawdź daty danych.")
-    portfolio_reports = analyze_portfolio(measurements, args.portfolio_grace_days,
-                                          ignored_dates=excluded_days.doba_handlowa)
     start = energy["doba_handlowa"].min()
     end = energy["doba_handlowa"].max() + pd.Timedelta(days=1)
     weather = _weather(args, config, start, end, origin)
+    from .energy_filter import filter_settings_from_options, prepare_training_energy
+    filter_settings = filter_settings_from_options(vars(args))
+    energy, measurements, filter_state, filter_reports, split_cutoff = prepare_training_energy(
+        energy, measurements, weather, settings, filter_settings)
+    portfolio_reports = analyze_portfolio(measurements, args.portfolio_grace_days,
+                                          ignored_dates=excluded_days.doba_handlowa)
+    for name, frame in filter_reports.items():
+        write_csv(frame, directory / f"{name}.csv")
     print("Uczę modele. Porównuję pogodę na walidacji, następnie oceniam na osobnym teście.")
     from threadpoolctl import threadpool_limits
     with threadpool_limits(limits=settings.threads):
-        bundle, reports = train_branch_models(energy, weather, settings)
+        bundle, reports = train_branch_models(energy, weather, settings, split_cutoff=split_cutoff)
+    bundle["energy_filter"] = filter_state
+    reports.update(filter_reports)
     bundle["portfolio_reports"] = portfolio_reports
     bundle["portfolio_grace_days"] = args.portfolio_grace_days
     bundle["input_schema"] = {"sheet_regex": config.sheet_regex, "start_date": args.start_date,
-                              "exclude_dst_days": not args.include_dst_days}
+                              "exclude_dst_days": not args.include_dst_days,
+                              "exclude_negative_energy": args.exclude_negative_energy}
     reports["pominiete_dni_zmiany_czasu"] = excluded_days
     save_bundle(bundle, directory)
     write_csv(quality, directory / "kontrola_energii.csv")
@@ -161,8 +178,10 @@ def predict_main(argv=None) -> int:
     asof = utc_timestamp(args.as_of if args.as_of else pd.Timestamp.now(tz="UTC"), config.timezone)
     portfolio_reports = None
     excluded_days = None
+    filter_reports = {}
     if args.energy:
-        measurements, excluded_days = load_prediction_measurements(args.energy, bundle, return_excluded_days=True)
+        measurements, excluded_days, filter_reports = load_prediction_measurements(
+            args.energy, bundle, return_excluded_days=True, return_filter_reports=True)
         if measurements["target_time_utc"].max() > asof:
             raise ValueError("Eksport do kontroli portfela ma pomiary późniejsze niż chwila prognozy.")
         portfolio_reports = analyze_portfolio(measurements, bundle.get("portfolio_grace_days", 14),
@@ -179,6 +198,8 @@ def predict_main(argv=None) -> int:
         balance, details = predict_branches(bundle, weather, asof, hours, portfolio_reports=portfolio_reports)
     directory = Path(args.output_dir)
     directory.mkdir(parents=True, exist_ok=True)
+    for name, frame in filter_reports.items():
+        write_csv(frame, directory / f"{name}.csv")
     if excluded_days is not None:
         write_csv(excluded_days, directory / "pominiete_dni_zmiany_czasu.csv")
     forecast_path = directory / f"prognoza_bilansu_{hours}h.csv"

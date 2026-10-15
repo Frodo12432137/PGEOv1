@@ -33,6 +33,11 @@ PARAMETRY = {
     # Podział czasowy: trening → walidacja wyboru → osobny test jakości.
     "start_date": "2024-07-01",  # Początek używanej historii energii.
     "include_dst_days": False,  # False = pomijaj całe doby zmiany czasu (23 i 25 h).
+    "exclude_negative_energy": True,  # Ujemne I pomijaj po wyborze korekty, bez odwracania znaku.
+    "exclude_energy_outliers": True,  # Wyklucz bardzo wysokie pomiary względem wcześniejszej historii MDD.
+    "energy_outlier_iqr_multiplier": 6.0,  # Próg: Q3 + ta liczba × IQR; więcej = łagodniejszy filtr.
+    "energy_outlier_min_ratio": 3.0,  # Próg nie spada poniżej 3 × Q3 dodatnich pomiarów.
+    "energy_outlier_min_samples": 30,  # Minimum dodatnich pomiarów do wyznaczenia progu danej serii.
     "validation_days": 14,  # Okno doboru modelu/pogody/parametrów.
     "test_days": 14,  # Późniejszy test; NIE służy do strojenia.
     "label_delay_hours": 72,  # Embargo; nie odtwarza publikacji korekt po miesiącach.

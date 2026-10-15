@@ -47,6 +47,9 @@ może odczytać wskazany `SKILL.md` jak zwykłą instrukcję.
   zapisuj regułę z modelem i stosuj ją w audycie bez fałszywych przerw MDD.
 - Nie zamieniaj brakującego pomiaru na zero. Zero jest pomiarem.
   Brak prognozy kierunku oznacza brak bilansu i jawny status.
+- Filtr energii domyślnie wyklucza ujemne I i bardzo wysokie pomiary po wyborze
+  korekt, z raportem i brakiem pełnej sumy OSD. Progi MDD dopasuj przed walidacją,
+  zamroź dla późniejszych danych; nie filtruj ujemnego bilansu ani poprawnego B=-1.
 - Historia pomiarów nie potwierdza aktywności umowy. Nie usuwaj automatycznie
   klientów ani nie skaluj prognozy liczbą MDD po samym zaniku danych.
 - Dobieraj cechy i parametry na chronologicznej walidacji; odłożony test służy
@@ -71,6 +74,7 @@ python -m unittest tests.test_energy_input_diagnostics -v
 python -m unittest tests.test_dst_day_exclusion -v
 python -m unittest tests.test_backtest -v
 python -m unittest tests.test_model_selection -v
+python -m unittest tests.test_energy_filter -v
 ```
 
 Uruchamiaj sprawdzenia odpowiednie do zmiany. Same opisy i skille wymagają

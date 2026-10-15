@@ -16,6 +16,9 @@ def _path(value: str | Path) -> str:
 def _options(settings: dict | None) -> list[str]:
     arguments = []
     for name, value in (settings or {}).items():
+        if value is False and name in {"exclude_negative_energy", "exclude_energy_outliers"}:
+            arguments.append("--no-" + name.replace("_", "-"))
+            continue
         if value is None or value is False:
             continue
         option = "--" + name.replace("_", "-")

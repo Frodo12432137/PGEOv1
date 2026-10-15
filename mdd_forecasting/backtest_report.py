@@ -65,7 +65,9 @@ def write_backtest_reports(bundle, details, balance, directory: Path, scope: dic
                        porownanie_wariantow=training_reports["porownanie_wariantow"])
         from .weather_quality import weather_quality_tables
         reports.update(weather_quality_tables(eligible_details, bundle["settings"]["timezone"]))
-        for name in ["rekomendacje_modelu", "rekomendacje_pogody", "walidacja_osd", "waznosc_pogody"]:
+        for name in ["rekomendacje_modelu", "rekomendacje_pogody", "walidacja_osd", "waznosc_pogody",
+                     "odrzucone_pomiary_energii", "podsumowanie_filtra_energii", "progi_odstajacych_energii",
+                     "kontrola_filtra_energii", "godziny_wykluczone_filtrem"]:
             if name in training_reports:
                 reports[name] = training_reports[name]
         for name, frame in reports.items():
@@ -120,6 +122,7 @@ def write_html(balance, summary, bundle, scope, destination, maximum_origins, *,
                          if name in {"bledy_godziny", "bledy_miesiace", "bledy_horyzont", "bledy_godziny_lacznie",
                                      "bledy_miesiace_lacznie", "bledy_horyzont_lacznie", "jakosc_pogody_zmienne",
                                      "jakosc_pogody_wydania", "rekomendacje_modelu", "rekomendacje_pogody"}}
+    payload["tables"]["podsumowanie_filtra_energii"] = json.loads((reports or {}).get("podsumowanie_filtra_energii", pd.DataFrame()).to_json(orient="records"))
     encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
     title = f"Trening {scope['trening_od']} – {scope['trening_do']} · Uruchomienia {scope['backtest_uruchomienia_od']} – {scope['backtest_uruchomienia_do']}"
     html = HTML.replace("__PAYLOAD__", encoded).replace("__TITLE__", escape(title))
@@ -144,6 +147,8 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:right;
 </style><main>
 <h1>PGEOv1 · Backtest prognozy energii</h1><p class="muted">__TITLE__</p>
 <div id="state" class="notice"></div>
+<p class="notice">Ocena energii obejmuje realizacje po skonfigurowanym filtrze ujemnych i odstających pomiarów. Wykluczone godziny pozostają w pokryciu jako nieocenione, bez zerowania sum OSD. Progi pochodzą z historii przed walidacją; obejrzyj odrzucone_pomiary_energii.csv, bo wysoka wartość może być prawidłowym szczytem.</p>
+<details class="panel"><summary>Wykluczenia pomiarów energii według OSD i miesiąca</summary><p class="muted">Obejmuje wczytany zakres treningu i backtestu. Parametry filtra oraz progi są w Excelu.</p><div class="scroll"><table id="energyFilter"></table></div></details>
 <section class="panel"><div class="controls">
 <label>Oddział<select id="branch"></select></label><label>Uruchomienie / widok<select id="origin"></select></label>
 <label>Wielkość<select id="channel"><option value="0">Bilans: pobranie − oddanie</option><option value="1">Pobranie</option><option value="2">Oddanie</option></select></label>
@@ -205,6 +210,7 @@ function renderWeather(){const branch=$('branch').value,month=$('weatherMonth').
 fillTable('weatherVariables',(T.jakosc_pogody_zmienne||[]).filter(filter),[['zmienna','Zmienna'],['pokrycie','Pokrycie','pct'],['braki','Braki'],['nieskonczone','Nieskończone'],['podejrzany_zakres','Podejrzane'],['minimum','Min'],['mediana','Mediana'],['maksimum','Max'],['status','Stan']]);
 fillTable('weatherIssues',(T.jakosc_pogody_wydania||[]).filter(filter),[['horyzont','Horyzont'],['pokrycie_wydaniami','Wydania as-of','pct'],['brak_wydania_asof','Brak wydania'],['wiek_wydania_mediana_h','Wiek mediana h'],['wiek_wydania_p95_h','Wiek P95 h'],['liczba_wydan_starszych_24h','Wydania >24 h'],['wyprzedzenie_meteo_mediana_h','Wyprzedzenie meteo h']]);}
 function renderAnalysis(){const branch=$('branch').value,kind=channel(),dimension=$('dimension').value,metric=$('errorMetric').value,all=$('diagnosticScope').value==='ALL';
+fillTable('energyFilter',(T.podsumowanie_filtra_energii||[]).filter(r=>r.oddzial_code===branch&&r.powod!=='POMIAR_NIEWYKLUCZONY'),[['oddzial_code','OSD'],['kierunek_energii_norm','Kierunek'],['rok_miesiac','Rok/miesiąc'],['powod','Powód'],['liczba_pomiarow','Wykluczone pomiary']]);
 const key='bledy_'+dimension+(all?'_lacznie':''),field={godziny:'godzina_lokalna',miesiace:'rok_miesiac',horyzont:'horyzont_h'}[dimension];
 const rows=(T[key]||[]).filter(r=>r.kierunek===kind&&(all||r.oddzial_code===branch)).sort((a,b)=>typeof a[field]==='number'?a[field]-b[field]:String(a[field]).localeCompare(String(b[field])));
 fillTable('errorTable',rows,[[field,'Zakres'],['n','n prognoz'],['n_godzin','n godzin UTC'],['pokrycie','Pokrycie','pct'],['mae','MAE'],['rmse','RMSE'],['bias','Bias'],['wape','WAPE','pct'],['poprawa_mae_vs_profil','Poprawa vs profil','pct']]);

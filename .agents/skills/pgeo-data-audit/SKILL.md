@@ -25,7 +25,14 @@ składowych bez znajomości hierarchii. Nie uzupełniaj pustego oddziału poprze
 Kierunek wyznacza wyłącznie B: `1` czynne pobranie, `-1` czynne oddanie,
 zgodnie z potwierdzeniem użytkownika 2026-10-15. E jest opisem; nie filtruj
 po słowach o energii biernej i nie stosuj fallbacku z E. Zachowaj walidację
-innych/brakujących kodów B, ujemnych wartości i nieznanych oddziałów.
+innych/brakujących kodów B i nieznanych oddziałów. Aktualna decyzja użytkownika:
+ujemne i odstające pomiary I pomijamy po wyborze korekt. Ujemny bilans i B=-1
+pozostają poprawne. Nie odwracaj znaku, nie sięgaj po starszą korektę i nie
+sumuj tylko pozostałych MDD — wykluczony składnik zostawia sumę jako brak.
+`energy_filter.py` dopasowuje górne progi na dodatniej historii przed walidacją,
+stosuje je bez refitu w backteście i audycie. Nowym MDD bez referencji nie
+przypisuj progów innych klientów. Czytaj raport odrzuceń, liczniki i progi;
+wyniki po filtrze są warunkowe. Test: `tests.test_energy_filter`.
 
 ## Sprawdź pogodę i czas
 

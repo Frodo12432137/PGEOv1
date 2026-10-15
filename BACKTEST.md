@@ -105,6 +105,8 @@ uruchomienia. Otwórz w nim:
 | `jakosc_pogody_zmienne.csv`, `jakosc_pogody_wydania.csv` | pokrycie, braki, podejrzane zakresy, wiek wydania i wyprzedzenie meteo według OSD/miesiąca/horyzontu |
 | `rekomendacje_modelu.csv` / arkusz `Rekomendacje_parametrow` | konfiguracje wybrane na wcześniejszej walidacji, już zastosowane; porównanie z profilem i ostrzeżenia |
 | `rekomendacje_pogody.csv`, `walidacja_osd.csv` | ranking zestawów pogody i wyniki każdego OSD na walidacji |
+| `odrzucone_pomiary_energii.csv` | oryginalne ujemne i statystycznie odstające pomiary, ich źródłowe wiersze, powody i progi |
+| `podsumowanie_filtra_energii.csv`, `progi_odstajacych_energii.csv` | liczby wykluczeń według OSD/kierunku/miesiąca oraz zamrożone progi |
 | `trening/modele_oddzialow.joblib` i `manifest_oddzialy.json` | dokładny model użyty do tego backtestu i jego wersje bibliotek |
 | `backtest.log`, `postep_strojenia.csv`, `przebiegi/` | postęp, ukończone próby strojenia i bilanse kolejnych uruchomień |
 
@@ -122,6 +124,16 @@ osobnym wynikiem jakości z tabeli. HTML ogranicza wybór do
 Excel pokazuje do 20 000 wierszy tabeli i pierwsze 5000 punktów wykresu oddziału;
 pełne dane pozostają w CSV. Nie obiecujemy określonej dokładności przed oceną
 na danych PGE. Wyniki testów programu na danych syntetycznych nie są takim wynikiem.
+
+## Filtr pomiarów energii
+
+Ujemne pomiary I i bardzo wysokie wartości są domyślnie filtrowane po wyborze
+korekt. Progi MDD są dopasowane wyłącznie na początkowym treningu, przed
+wewnętrzną walidacją, i zamrożone dla reszty danych. Wykluczony składnik
+oznacza brak pełnej sumy OSD, bez zastępowania zerem. Prognoza pozostaje w CSV,
+a `POMIAR_WYKLUCZONY_FILTREM` wyjaśnia brak oceny i obniża jej pokrycie.
+Ujemny bilans, zera oraz poprawny kod B=-1 pozostają dozwolone.
+Konfigurację i ograniczenia opisuje [filtr energii](PARAMETRY_I_RAPORTY.md#ujemne-i-odstające-pomiary-energii).
 
 ## Obliczenia bez limitu i wznowienie
 
