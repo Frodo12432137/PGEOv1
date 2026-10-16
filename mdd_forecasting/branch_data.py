@@ -38,8 +38,9 @@ def utc_timestamp(value: object, timezone: str = "Europe/Warsaw") -> pd.Timestam
 def trade_time_utc(dates: pd.Series, hours: pd.Series, timezone: str) -> pd.Series:
     """1=00:00; 25=dodatkowa 02:00 zimowa. Wiosenna 03 jest niepoprawna.
 
-    Numeracja musi odpowiadać kolumnie godzinaHandlowa25 w hurtowni.
-    Nie utożsamiamy 25. godziny z północą następnego dnia.
+    Konwencja eksportu energii, poza domyślnie wyłączonymi dobami DST.
+    Nie utożsamiamy 25. godziny z północą następnego dnia. Pogoda używa
+    własnych znaczników UTC, niezależnie od swojej numeracji handlowej.
     """
     h = pd.to_numeric(hours, errors="coerce")
     normal = h.between(1, 24) & h.mod(1).eq(0)
@@ -321,29 +322,16 @@ def sum_branch_measurements(measurements: pd.DataFrame, timezone: str) -> pd.Dat
 
 
 def prepare_weather_vintages(raw: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
-    weather = normalize_weather(raw, replace(config, weather_already_vintaged=True, preserve_weather_vintages=True))
-    # Jeśli UTC nie ma w eksporcie, godziny niejednoznaczne są odrzucane.
-    for utc_col, local_col in [("weather_valid_time_utc", "weather_valid_time"),
-                               ("weather_issue_time_utc", "weather_issue_time")]:
-        missing = weather[utc_col].isna()
-        if missing.any():
-            derived = weather.loc[missing, local_col].dt.tz_localize(
-                config.timezone, ambiguous="NaT", nonexistent="NaT"
-            ).dt.tz_convert("UTC")
-            weather.loc[missing, utc_col] = derived
-    weather = weather.loc[weather["weather_valid_time_utc"].notna() & weather["weather_issue_time_utc"].notna()].copy()
-    weather = weather.loc[weather["weather_valid_time_utc"].dt.minute.eq(0)
-                          & weather["weather_valid_time_utc"].dt.second.eq(0)].copy()
-    if weather["_weather_explicit_trade_key"].any():
-        expected = trade_time_utc(weather["weather_trade_date"], weather["weather_trade_hour"], config.timezone)
-        if expected.isna().any() or expected.ne(weather["weather_valid_time_utc"]).any():
-            raise ValueError("Klucze godzinaHandlowa25/dataCET nie odpowiadają czasowi UTC. Potwierdź numerację godzin w hurtowni.")
+    from .weather_time import normalize_weather_time
+    weather = normalize_weather(raw, replace(config, weather_already_vintaged=True,
+                                            preserve_weather_vintages=True), utc_primary=True)
+    weather = normalize_weather_time(weather, config.timezone)
     key = ["_punkt_key", "weather_valid_time_utc", "weather_issue_time_utc"]
     conflicts = weather.groupby(key)[WEATHER_FEATURES].nunique(dropna=False).gt(1).any(axis=1)
     if conflicts.any():
         raise ValueError("Sprzeczne wersje pogody dla tego samego punktu, godziny i czasu źródła. Ustaw filtr właściciela/typu w SQL.")
-    weather = weather.drop_duplicates(key)
-    weather = weather.loc[weather["weather_issue_time_utc"].le(weather["weather_valid_time_utc"])].copy()
+    # Zachowaj oryginalne rekordy także do audytu metadanych. Identyczne
+    # klucze i cechy są deduplikowane dopiero na wejściu łączenia as-of.
     return weather
 
 
@@ -353,7 +341,9 @@ def join_weather_asof(requests: pd.DataFrame, weather: pd.DataFrame) -> pd.DataF
     left["_punkt_key"] = left["punkt"].map(_ascii_token)
     left["_request_order"] = np.arange(len(left))
     columns = ["_punkt_key", "weather_valid_time_utc", "weather_issue_time_utc", *WEATHER_FEATURES]
-    right = weather[columns].rename(columns={"weather_valid_time_utc": "target_time_utc"})
+    right = weather[columns].drop_duplicates(
+        ["_punkt_key", "weather_valid_time_utc", "weather_issue_time_utc"]
+    ).rename(columns={"weather_valid_time_utc": "target_time_utc"})
     # Eksport CSV może dać nanosekundy, a Timestamp z CLI sekundy.
     # merge_asof wymaga identycznej rozdzielczości obu kluczy czasu.
     for column in ["target_time_utc", "forecast_origin_utc"]:

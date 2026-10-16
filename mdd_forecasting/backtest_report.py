@@ -70,6 +70,9 @@ def write_backtest_reports(bundle, details, balance, directory: Path, scope: dic
                      "kontrola_filtra_energii", "godziny_wykluczone_filtrem"]:
             if name in training_reports:
                 reports[name] = training_reports[name]
+        for name in ["kontrola_czasu_pogody", "rozbieznosci_czasu_pogody"]:
+            if name in training_reports:
+                reports[name] = training_reports[name]
         for name, frame in reports.items():
             write_csv(frame, directory / f"{name}.csv")
         write_training_workbook(bundle, reports, directory / "raport_backtestu.xlsx", read_me=note)

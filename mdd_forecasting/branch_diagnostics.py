@@ -143,6 +143,7 @@ READ_ME = [
     ("Pogoda", "Ważność permutacyjna grup jest opisem wpływu na błąd testu, nie dowodem przyczynowości. Ujemna wartość może oznaczać szum; nieużyta grupa nie oznacza udowodnionej bezużyteczności."),
     ("Przedziały pogody", "Przedziały w Warunki_pogody są w jednostkach źródłowych. Potwierdź jednostki z hurtownią przed interpretacją."),
     ("Czas", "Cele i origins są UTC; godzina, dzień i miesiąc diagnostyki są w Europe/Warsaw. Dwie jesienne 02:00 mają różne UTC."),
+    ("Czas pogody", "Poprawne UTC celu i wydania ma pierwszeństwo przed CET i numerem handlowym. Brak UTC dopuszcza tylko jednoznaczną konwersję lokalnego czasu. Rozbieżności metadanych są w Kontrola_czasu_pogody i Rozbieznosci_czasu_pogody; nie przesuwamy UTC do godziny handlowej."),
     ("Korekty", "Ocena retrospektywna na najlepszych dostępnych korektach; brak historii ich publikacji. Lagi energii pozostają wyłączone."),
     ("Klienci", "Obecność MDD nie jest potwierdzeniem aktywności umowy. Braki i zmiany portfela trzeba wyjaśnić."),
     ("Duże tabele", "Excel zawiera do 20 000 wierszy każdej tabeli. Pełne tabele są w plikach CSV obok raportu."),
@@ -238,6 +239,8 @@ def write_training_workbook(bundle: dict, reports: dict[str, pd.DataFrame], dest
         "odrzucone_pomiary_energii": "Odrzucone_pomiary", "podsumowanie_filtra_energii": "Filtr_energii_licznosci",
         "progi_odstajacych_energii": "Progi_odstajacych", "kontrola_filtra_energii": "Kontrola_filtra_energii",
         "godziny_wykluczone_filtrem": "Godziny_wykluczone_filtrem",
+        "kontrola_czasu_pogody": "Kontrola_czasu_pogody",
+        "rozbieznosci_czasu_pogody": "Rozbieznosci_czasu_pogody",
     }
     for key, name in sheets.items():
         if key in reports:

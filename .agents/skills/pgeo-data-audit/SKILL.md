@@ -37,6 +37,11 @@ wyniki po filtrze są warunkowe. Test: `tests.test_energy_filter`.
 ## Sprawdź pogodę i czas
 
 Rozróżniaj godzinę celu od czasu dostępności wydania. Zachowaj archiwum.
+W bilansach poprawne źródłowe UTC celu/wydania ma pierwszeństwo przed
+CET i kluczem handlowym. `weather_time.py` raportuje rozbieżne metadane,
+ale nie przesuwa UTC. Brak UTC wymaga jednoznacznej konwersji lokalnego
+czasu; błędne jawne UTC i niejednoznaczny czas bez UTC zapisuje w raporcie
+błędów i przerywa odczyt. Testy: `tests.test_weather_utc`.
 Dla całej prognozy wybierz najnowsze wydanie z `issue_time <= origin`,
 osobno dla punktu i godziny celu. Nie zastępuj tego najbliższym czasem
 według wartości bezwzględnej ani filtrem globalnego ostatniego wydania.

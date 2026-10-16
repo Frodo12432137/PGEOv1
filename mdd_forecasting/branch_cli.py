@@ -11,6 +11,7 @@ from .config import PipelineConfig, DEFAULT_MAPPING_PATH
 from .database import SqlServerSettings, DEFAULT_SQL_SERVER, DEFAULT_SQL_DATABASE, DEFAULT_SQL_DRIVER
 from .io import read_weather_file
 from .portfolio import analyze_portfolio
+from .weather_time import WeatherTimeError, weather_time_reports
 
 
 def write_csv(frame: pd.DataFrame, path: Path):
@@ -31,18 +32,39 @@ def _weather_arguments(parser):
     parser.add_argument("--sql-trust-server-certificate", action="store_true")
 
 
-def _weather(args, config, start, end, asof):
+def write_weather_time_reports(weather, directory):
+    reports = weather_time_reports(weather)
+    for name, frame in reports.items():
+        write_csv(frame, Path(directory) / f"{name}.csv")
+    print("Czas pogody: UTC dla celu, wydania i łączenia z energią. "
+          f"Kontrola: {Path(directory).resolve() / 'kontrola_czasu_pogody.csv'}", flush=True)
+    return reports
+
+
+def _weather(args, config, start, end, asof, diagnostics_dir=None):
+    start, end = utc_timestamp(start, config.timezone), utc_timestamp(end, config.timezone)
     if args.weather:
         raw = read_weather_file(args.weather)
     else:
         settings = SqlServerSettings(server=args.sql_server, database=args.sql_database,
                                      driver=args.sql_driver, encrypt=args.sql_encrypt,
                                      trust_server_certificate=args.sql_trust_server_certificate)
-        print(f"Pobieram pogodę z SQL: {start} – {end}. Czas dostępności do {asof}.")
+        print(f"Pobieram pogodę z SQL: {start} – {end} (UTC). Czas dostępności do {asof}.")
         raw = query_branch_weather_sql(args.weather_sql, settings, start, end, asof,
                                        owner=args.sql_owner, weather_type=args.sql_weather_type,
                                        query_timeout=args.sql_query_timeout)
-    return prepare_weather_vintages(raw, config)
+    try:
+        weather = prepare_weather_vintages(raw, config)
+    except WeatherTimeError as exc:
+        if diagnostics_dir is not None:
+            path = Path(diagnostics_dir) / "bledy_czasu_pogody.csv"
+            write_csv(exc.diagnostics, path)
+            raise ValueError(f"Niepoprawny lub niejednoznaczny czas pogody. "
+                             f"Sprawdź oryginały i przyczyny w {path.resolve()}.") from exc
+        raise
+    if diagnostics_dir is not None:
+        write_weather_time_reports(weather, diagnostics_dir)
+    return weather
 
 
 def train_main(argv=None) -> int:
@@ -123,9 +145,9 @@ def train_main(argv=None) -> int:
     origin = pd.Timestamp.now(tz="UTC")
     if energy["target_time_utc"].max() > origin:
         raise ValueError("Eksport ma realizacje energii z przyszłości. Sprawdź daty danych.")
-    start = energy["doba_handlowa"].min()
-    end = energy["doba_handlowa"].max() + pd.Timedelta(days=1)
-    weather = _weather(args, config, start, end, origin)
+    start = energy["target_time_utc"].min()
+    end = energy["target_time_utc"].max() + pd.Timedelta(hours=1)
+    weather = _weather(args, config, start, end, origin, diagnostics_dir=directory)
     from .energy_filter import filter_settings_from_options, prepare_training_energy
     filter_settings = filter_settings_from_options(vars(args))
     energy, measurements, filter_state, filter_reports, split_cutoff = prepare_training_energy(
@@ -140,6 +162,7 @@ def train_main(argv=None) -> int:
         bundle, reports = train_branch_models(energy, weather, settings, split_cutoff=split_cutoff)
     bundle["energy_filter"] = filter_state
     reports.update(filter_reports)
+    reports.update(weather_time_reports(weather))
     bundle["portfolio_reports"] = portfolio_reports
     bundle["portfolio_grace_days"] = args.portfolio_grace_days
     bundle["input_schema"] = {"sheet_regex": config.sheet_regex, "start_date": args.start_date,
@@ -190,9 +213,11 @@ def predict_main(argv=None) -> int:
     if hours > bundle["settings"]["horizon_hours"]:
         raise ValueError("Horyzont jest większy niż zakres treningu.")
     requests = future_requests(bundle["branches"], asof, hours, config.timezone)
-    start = requests["target_time_utc"].min().tz_convert(config.timezone).tz_localize(None)
-    end = (requests["target_time_utc"].max() + pd.Timedelta(hours=1)).tz_convert(config.timezone).tz_localize(None)
-    weather = _weather(args, config, start, end, asof)
+    start = requests["target_time_utc"].min()
+    end = requests["target_time_utc"].max() + pd.Timedelta(hours=1)
+    directory = Path(args.output_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    weather = _weather(args, config, start, end, asof, diagnostics_dir=directory)
     from threadpoolctl import threadpool_limits
     with threadpool_limits(limits=4):
         balance, details = predict_branches(bundle, weather, asof, hours, portfolio_reports=portfolio_reports)

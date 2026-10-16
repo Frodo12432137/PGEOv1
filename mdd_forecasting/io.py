@@ -278,7 +278,7 @@ def read_weather_file(path: str | Path) -> pd.DataFrame:
     raise ValueError("Dane pogodowe muszą być plikiem CSV, XLSX albo XLSM.")
 
 
-def normalize_weather(weather: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
+def normalize_weather(weather: pd.DataFrame, config: PipelineConfig, *, utc_primary: bool = False) -> pd.DataFrame:
     raw = weather.copy()
     normalized_headers = {_ascii_token(col): col for col in raw.columns}
     rename: dict[object, str] = {}
@@ -290,12 +290,23 @@ def normalize_weather(weather: pd.DataFrame, config: PipelineConfig) -> pd.DataF
                 break
     df = raw.rename(columns=rename)
 
-    for required in ["punkt", "weather_valid_time"]:
+    for required in (["punkt"] if utc_primary else ["punkt", "weather_valid_time"]):
         if required not in df.columns:
             raise ValueError(
                 f"Brak kolumny pogodowej {required!r}. Dostępne nagłówki: {list(raw.columns)}"
             )
-    if not config.weather_already_vintaged and "weather_issue_time" not in df.columns:
+    if utc_primary:
+        # Zachowaj oryginały do kontroli przed konwersją; numer to pozycja
+        # rekordu w wyniku SQL/pliku, nie indeks DataFrame ani wiersz Excela.
+        df["_weather_source_row"] = np.arange(1, len(df) + 1)
+        for column in ["weather_valid_time", "weather_valid_time_utc", "weather_issue_time",
+                       "weather_issue_time_utc", "weather_trade_date", "weather_trade_hour"]:
+            df[f"_raw_{column}"] = df[column] if column in df else pd.NA
+        if "weather_valid_time" not in df:
+            df["weather_valid_time"] = pd.NaT
+    if not config.weather_already_vintaged and "weather_issue_time" not in df.columns and not (
+        utc_primary and "weather_issue_time_utc" in df.columns
+    ):
         raise ValueError(
             "Brak czasu wydania prognozy `czasDanychZrodlaCET`. Bez niego backtest grozi leakage. "
             "Jeżeli eksport został już poprawnie zwintagowany w SQL, użyj --weather-already-vintaged."
@@ -303,20 +314,26 @@ def normalize_weather(weather: pd.DataFrame, config: PipelineConfig) -> pd.DataF
 
     df["punkt"] = _clean_text(df["punkt"])
     df["_punkt_key"] = df["punkt"].map(_ascii_token)
-    df["weather_valid_time"] = pd.to_datetime(df["weather_valid_time"], errors="coerce")
+    parse_options = {"format": "mixed"} if utc_primary else {}
+    local_options = {"utc": True, **parse_options} if utc_primary else {}
+    df["weather_valid_time"] = pd.to_datetime(df["weather_valid_time"], errors="coerce", **local_options)
+    if utc_primary:
+        df["weather_valid_time"] = df["weather_valid_time"].dt.tz_localize(None)
     if "weather_valid_time_utc" in df.columns:
         df["weather_valid_time_utc"] = pd.to_datetime(
-            df["weather_valid_time_utc"], errors="coerce", utc=True
+            df["weather_valid_time_utc"], errors="coerce", utc=True, **parse_options
         )
     else:
         df["weather_valid_time_utc"] = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns, UTC]")
     if "weather_issue_time" in df.columns:
-        df["weather_issue_time"] = pd.to_datetime(df["weather_issue_time"], errors="coerce")
+        df["weather_issue_time"] = pd.to_datetime(df["weather_issue_time"], errors="coerce", **local_options)
+        if utc_primary:
+            df["weather_issue_time"] = df["weather_issue_time"].dt.tz_localize(None)
     else:
         df["weather_issue_time"] = pd.NaT
     if "weather_issue_time_utc" in df.columns:
         df["weather_issue_time_utc"] = pd.to_datetime(
-            df["weather_issue_time_utc"], errors="coerce", utc=True
+            df["weather_issue_time_utc"], errors="coerce", utc=True, **parse_options
         )
     else:
         df["weather_issue_time_utc"] = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns, UTC]")
@@ -325,7 +342,10 @@ def normalize_weather(weather: pd.DataFrame, config: PipelineConfig) -> pd.DataF
         "weather_trade_hour",
     }.issubset(df.columns)
     if "weather_trade_date" in df.columns:
-        df["weather_trade_date"] = pd.to_datetime(df["weather_trade_date"], errors="coerce").dt.normalize()
+        df["weather_trade_date"] = pd.to_datetime(df["weather_trade_date"], errors="coerce", **local_options)
+        if utc_primary:
+            df["weather_trade_date"] = df["weather_trade_date"].dt.tz_localize(None)
+        df["weather_trade_date"] = df["weather_trade_date"].dt.normalize()
     else:
         df["weather_trade_date"] = df["weather_valid_time"].dt.normalize()
     if "weather_trade_hour" in df.columns:
@@ -340,7 +360,8 @@ def normalize_weather(weather: pd.DataFrame, config: PipelineConfig) -> pd.DataF
             df[feature] = np.nan
         df[feature] = _numeric(df[feature])
 
-    df = df[df["weather_valid_time"].notna() & df["_punkt_key"].ne("")].copy()
+    if not utc_primary:
+        df = df[df["weather_valid_time"].notna() & df["_punkt_key"].ne("")].copy()
     if not config.weather_already_vintaged:
         lead_delta = pd.to_timedelta(config.min_lead_hours, unit="h")
         has_utc = df["weather_valid_time_utc"].notna() & df[

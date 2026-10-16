@@ -186,13 +186,14 @@ def run_backtest(configuration: dict) -> int:
         option = "--weather-sql" if Path(weather_file).suffix.lower() == ".sql" else "--weather"
         args = parser.parse_args([option, weather_file, *_options(configuration.get("weather_options"))])
         update("ODCZYT_POGODY")
-        start_local = train_start.tz_convert(settings.timezone).tz_localize(None)
-        end_local = (last_target + pd.Timedelta(hours=1)).tz_convert(settings.timezone).tz_localize(None)
-        weather = _weather(args, config, start_local, end_local, origins[-1])
+        weather = _weather(args, config, train_start, last_target + pd.Timedelta(hours=1),
+                           origins[-1], diagnostics_dir=run)
         dump_atomic(weather, weather_cache)
     weather_hash = file_digest(weather_cache)
     if weather.empty:
         raise ValueError("Puste archiwum prognoz pogody.")
+    from .branch_cli import write_weather_time_reports
+    time_reports = write_weather_time_reports(weather, run)
     trials_file = cache / "proby_strojenia.json"
     trials = {}
     if trials_file.is_file():
@@ -236,6 +237,7 @@ def run_backtest(configuration: dict) -> int:
         save_bundle(bundle, cache / "trening")
         dump_atomic(training_reports, cache / "raporty_treningu.joblib")
         atomic_json(ready_file, {"pogoda_sha256": weather_hash})
+    training_reports.update(time_reports)
     measurements, all_filter_reports = apply_energy_filter(measurements, bundle["energy_filter"], settings.timezone)
     energy = sum_branch_measurements(measurements, settings.timezone)
     all_filter_reports["godziny_wykluczone_filtrem"] = energy.loc[energy.liczba_odrzuconych_pomiarow.gt(0)].copy()

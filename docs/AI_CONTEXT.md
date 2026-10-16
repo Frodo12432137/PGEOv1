@@ -272,3 +272,38 @@ oryginałów i możliwość wyłączenia filtra. Nieskończone I, błędy B/czas
 sprzeczne najlepsze korekty nadal wymagają wyjaśnienia. Niskopoziomowy loader
 bez opcji pozostaje ścisły dla zgodności, CLI przekazuje nową politykę jawnie.
 Testy: tests.test_energy_filter. Źródłowy eksport nie jest zmieniany.
+
+Decyzja użytkownika 16 października 2026 po błędzie zgodności godziny
+handlowej pogody: energia i pogoda mają być łączone i przetwarzane po UTC.
+Było to już zasadą kluczy modelu; blokowała dodatkowa walidacja H25/CET.
+W bilansach poprawne źródłowe `dataGodzinaUTC` oraz `czasDanychZrodlaUTC`
+mają teraz pierwszeństwo. Rozbieżne CET/dataCET/godzinaHandlowa25 są
+metadanymi do audytu, bez przestawiania UTC i bez blokowania poprawnego UTC.
+Nie potwierdza to fizycznej poprawności źródłowych UTC; brak danych źródłowych
+PGE i połączenia z firmowym SQL w chmurze nadal ogranicza weryfikację.
+
+`weather_time.py` dopuszcza brak UTC tylko przy jednoznacznej konwersji czasu
+lokalnego z Europe/Warsaw albo z jawnym offsetem. Nie zgaduje godziny podczas
+zmiany czasu. Błędne niepuste UTC, brak punktu/czasu i niepełna godzina celu
+zatrzymują odczyt z oryginałami w `bledy_czasu_pogody.csv`. Nie znikają po cichu.
+Późne wydania pozostają w audycie, a as-of i dodatni horyzont wykluczają
+je z wcześniejszych prognoz. Sprzeczne cechy tego samego klucza UTC nadal
+wymagają filtra właściciela/typu. Oryginalne duplikaty pozostają do audytu;
+identyczne wersje są deduplikowane dopiero przy łączeniu.
+
+Raporty `kontrola_czasu_pogody.csv` i `rozbieznosci_czasu_pogody.csv` są
+w treningu, prognozie i backteście, także po wznowieniu z cache; Excel ma
+odpowiednie arkusze. To kontrola czasu wejściowej pogody, nie przywrócenie
+usuniętej osobnej diagnostyki numeracji godzin energii. Numer źródła w raporcie
+to kolejność rekordu wyniku SQL/pliku, nie numer arkusza Excela.
+
+SQL domyślny filtruje `dataGodzinaUTC` i ma kontrakt `-- PGEO_VALID_RANGE: UTC`;
+aplikacja przekazuje świadome strefy granice UTC. Własny stary SQL bez znacznika
+otrzymuje nadal granice CET, co adapter jawnie komunikuje. Nie nadpisuj lokalnych
+zapytań, ścieżek i dat użytkownika przy dostarczaniu poprawki. Energia A:I
+pozostaje odczytywana jako czas lokalny i przeliczana raz na UTC. Zgoda na
+wyłączenie całych dób DST pozostaje; UTC nie rozstrzyga nieznanej numeracji H25
+energii. Daty wejściowe, lokalny kalendarz i podziały raportu nadal mają jawną
+semantykę Europe/Warsaw. Nie zmieniono cech modelu, parametrów ani formatu modelu.
+Testy: `tests.test_weather_utc` oraz istniejące testy obu przepływów, treningu,
+backtestu i wznowienia. Dane syntetyczne nie dowodzą dokładności modelu PGE.

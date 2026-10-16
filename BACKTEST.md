@@ -71,6 +71,13 @@ Nie ma okresowych refitów w trakcie backtestu: odwzorowuje on korzystanie
 z jednego zapisanego modelu.
 
 Pogoda dla każdego celu musi mieć czas wydania nie późniejszy niż dany origin.
+Cel i wydanie łączymy po UTC. Poprawne źródłowe `dataGodzinaUTC` i
+`czasDanychZrodlaUTC` mają pierwszeństwo przed metadanymi CET/H25.
+Rozbieżności są w `rozbieznosci_czasu_pogody.csv`, podsumowanie źródeł czasu
+w `kontrola_czasu_pogody.csv`; oba raporty są też w Excelu i przy wznowieniu
+z cache. Błędny lub niejednoznaczny czas bez prawidłowego UTC zapisuje
+`bledy_czasu_pogody.csv` i zatrzymuje przebieg przed treningiem. Daty
+ustawiane w launcherze i kalendarz modelu zachowują znaczenie Europe/Warsaw.
 Potrzebne jest **archiwum wydań**, nie tylko aktualna prognoza lub obserwowana
 pogoda historyczna. Do treningu nie trafi przyszłe wydanie. Jak dotychczas,
 nie znamy czasów publikacji korekt energii: ocena wykorzystuje najlepsze wersje

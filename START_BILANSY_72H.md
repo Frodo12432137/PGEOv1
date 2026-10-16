@@ -181,6 +181,30 @@ do kontroli, bez uczenia ani zmieniania modeli.
 
 ## Wybór prognozy pogody
 
+Klucze celu, wydania, origin i łączenia energii z pogodą są UTC. Poprawne
+`dataGodzinaUTC` i `czasDanychZrodlaUTC` mają pierwszeństwo przed lokalnymi
+opisami CET i numerem `godzinaHandlowa25`. Niezgodny numer nie blokuje już
+poprawnego UTC ani nie przesuwa godziny. Model nadal otrzymuje lokalny
+kalendarz (godzina aktywności, dzień tygodnia, święta), wyliczony z tego UTC.
+Daty w launcherach nadal oznaczają daty polskiego kalendarza. Energia F/H
+jest konwertowana z `Europe/Warsaw`, z uwzględnieniem sezonowego offsetu;
+nie wolno jej tylko oznaczyć etykietą UTC lub zawsze odjąć jednej godziny.
+Dotychczasowe wyłączenie całych dób zmiany czasu energii pozostaje.
+
+Kontrole czasu zapisują `kontrola_czasu_pogody.csv` i
+`rozbieznosci_czasu_pogody.csv` oraz odpowiadające im arkusze Excel.
+Jeżeli UTC brakuje, program przelicza tylko jednoznaczny czas lokalny.
+Niepoprawne niepuste UTC albo niejednoznaczny czas bez UTC przerywają odczyt
+z raportem `bledy_czasu_pogody.csv`, przed treningiem. Numer rekordu raportu
+oznacza pozycję w odczytanym pliku/wyniku SQL. Źródłowe dane nie są zmieniane.
+
+Aktualny domyślny SQL filtruje również zakres celu po `dataGodzinaUTC`.
+Komentarz `-- PGEO_VALID_RANGE: UTC` określa kontrakt parametrów od/do.
+Starszy własny SQL bez tego znacznika otrzymuje nadal granice w CET,
+przeliczone z UTC przez adapter. Nie trzeba nadpisywać swojego SQL, by
+naprawić błąd niezgodności UTC z numeracją handlową. Samo dodanie znacznika
+do zapytania nadal filtrującego CET spowodowałoby błędne przesunięcie zakresu.
+
 `dataGodzinaUTC/CET` mówi, jakiej godziny dotyczy pogoda. `czasDanychZrodlaUTC/CET`
 mówi, kiedy prognoza była dostępna, zgodnie z opisem użytkownika.
 Przykładowo, przy uruchomieniu o 10:00 wszystkie 72 godziny otrzymują najnowsze

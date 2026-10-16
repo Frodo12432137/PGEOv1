@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import re
 import pandas as pd
 
 from .branch_data import utc_timestamp
@@ -21,8 +22,16 @@ def query_branch_weather_sql(sql_path: str | Path, settings: SqlServerSettings,
     if not os.getenv("MDD_SQL_CONNECTION_STRING") and settings.driver not in pyodbc.drivers():
         raise RuntimeError(f"Brak sterownika ODBC {settings.driver!r}.")
     query = Path(sql_path).read_text(encoding="utf-8-sig")
-    # Pięć parametrów DECLARE; komentarze nie liczą się jako placeholdery.
-    start, end = _sql_datetime(valid_from, "od"), _sql_datetime(valid_to, "do")
+    # Jawny kontrakt nowego SQL. Nieoznaczone, lokalnie zmienione kwerendy
+    # zachowują dotychczasowe parametry CET, także gdy caller podaje UTC.
+    utc_range = bool(re.search(r"^\s*--\s*PGEO_VALID_RANGE:\s*UTC\s*$", query, re.MULTILINE))
+    if utc_range:
+        start, end = [utc_timestamp(value).tz_localize(None).to_pydatetime()
+                      for value in (valid_from, valid_to)]
+    else:
+        start, end = _sql_datetime(valid_from, "od"), _sql_datetime(valid_to, "do")
+        print("SQL bez znacznika PGEO_VALID_RANGE: UTC: parametry zakresu pozostają CET; "
+              "wynik łączymy po znacznikach UTC.", flush=True)
     if start >= end:
         raise ValueError("Początek zakresu SQL musi być wcześniejszy niż koniec.")
     params = [start, end, utc_timestamp(asof).tz_localize(None).to_pydatetime(),

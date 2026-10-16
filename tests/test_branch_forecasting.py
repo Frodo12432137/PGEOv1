@@ -74,13 +74,15 @@ class TestBranchData(unittest.TestCase):
         self.assertEqual(energy.oddzial_code.tolist(), ["ZEUE"])
         self.assertEqual(energy.punkt.tolist(), ["Łódź"])
 
-    def test_inconsistent_weather_trade_hour_is_rejected(self):
+    def test_explicit_weather_utc_overrides_inconsistent_trade_hour(self):
         raw = pd.DataFrame({"punkt": ["Białystok"], "dataCET": ["2025-01-01"],
                             "godzinaHandlowa25": [2], "dataGodzinaCET": ["2025-01-01 02:00"],
                             "dataGodzinaUTC": ["2025-01-01T01:00Z"],
                             "czasDanychZrodlaCET": ["2024-12-31 12:00"]})
-        with self.assertRaisesRegex(ValueError, "numerację"):
-            prepare_weather_vintages(raw, PipelineConfig())
+        with self.assertWarnsRegex(UserWarning, "Używam czasów UTC"):
+            weather = prepare_weather_vintages(raw, PipelineConfig())
+        self.assertEqual(weather.weather_valid_time_utc.iloc[0], pd.Timestamp("2025-01-01T01:00Z"))
+        self.assertIn("ROZBIEZNOSC_KLUCZA_HANDLOWEGO", weather.kontrola_czasu_pogody.iloc[0])
 
     def test_best_revision_once_per_measurement_and_signed_balance(self):
         rows = [
@@ -253,6 +255,7 @@ class TestBranchModel(unittest.TestCase):
                                  "--label-delay-hours", "24", "--max-iter", "8", "--skip-importance"])
             self.assertEqual(result, 0)
             model_path = model_dir / "modele_oddzialow.joblib"
+            self.assertTrue((model_dir / "kontrola_czasu_pogody.csv").is_file())
             before = hashlib.sha256(model_path.read_bytes()).hexdigest()
             for i in range(2):
                 args = ["--artifacts-dir", str(model_dir), "--weather", str(weather_path),
@@ -266,6 +269,7 @@ class TestBranchModel(unittest.TestCase):
                 self.assertTrue(output["bilans"].notna().all())
                 self.assertTrue(output["status_portfela"].eq("BEZ_DLUGICH_BRAKOW_W_POMIARACH").all())
                 self.assertTrue((directory / f"prognoza{i}" / "portfel_mdd.csv").exists())
+                self.assertTrue((directory / f"prognoza{i}" / "kontrola_czasu_pogody.csv").is_file())
             changed = raw.copy()
             changed.loc[changed["oddzial_code"].eq("BIA"), "klient_nazwa"] = "NOWY_MDD_BIA"
             changed_path = directory / "zmieniony_portfel.csv"

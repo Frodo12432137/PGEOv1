@@ -136,6 +136,23 @@ wyłącznie zgodnie z polityką administratorów. Dla ODBC 18 można wskazać:
   typ prognozy i `minLeadHours`.
 - dużo `pogoda_niedopasowana` — sprawdzić mapowanie oddział–miasto i 25. godzinę.
 
+## Czas w przepływie bilansów
+
+Powyższy opis starszego wejścia MDD nie zmienia kontraktu kwerendy bilansów
+`sql/pogoda_bilans_historia.sql`. Ta kwerenda ma pięć parametrów: od UTC,
+do UTC wyłącznie, maksymalny czas wydania UTC, właściciel i typ. Filtr celu
+korzysta z `dataGodzinaUTC`, a komentarz `-- PGEO_VALID_RANGE: UTC` informuje
+adapter o strefie parametrów. Aplikacja przekazuje granice świadome strefy UTC.
+Własny stary SQL bez znacznika zachowuje dotychczasowe parametry CET;
+adapter konwertuje granice przed wywołaniem ODBC. Nie dodawaj znacznika UTC
+do kwerendy nadal filtrującej cel w CET.
+
+Wynik może zawierać tylko `punkt`, `dataGodzinaUTC`, `czasDanychZrodlaUTC`
+i cechy pogodowe. Kolumny CET oraz klucze handlowe są opcjonalnymi metadanymi;
+ich rozbieżność z poprawnym UTC trafia do raportu, zamiast przerywać odczyt.
+Nieprawidłowe niepuste UTC i niejednoznaczny lokalny czas bez UTC są błędami.
+Wydań nie wybieramy względem czasu celu, tylko względem origin całej prognozy.
+
 Połączenie z firmową bazą nie może zostać przetestowane poza siecią/domeną. Lokalne
 testy sprawdzają kontrakt parametrów, zakres dat, join, UTC/DST i pełny model na danych
 syntetycznych.

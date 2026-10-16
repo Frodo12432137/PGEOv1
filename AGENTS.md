@@ -41,6 +41,9 @@ może odczytać wskazany `SKILL.md` jak zwykłą instrukcję.
   `ABS(DATEDIFF(...))`, globalne flagi ostatniej prognozy i późniejsze wydania
   nie odtwarzają informacji dostępnej w chwili uruchomienia.
 - Klucze czasu łącz po UTC. Kalendarz i eksport handlowy używają `Europe/Warsaw`.
+  Poprawne UTC celu/wydania pogody ma pierwszeństwo przed CET/H25; rozbieżne
+  metadane raportuj, nie przesuwaj UTC. Brak UTC dopuszcza tylko jednoznaczną
+  konwersję lokalnego czasu. Szczegóły i raporty: `weather_time.py`.
   Zachowaj obsługę dób 23/25 godzin; nie utożsamiaj godziny handlowej 25 z północą.
   Aktualna decyzja użytkownika: trening domyślnie wyłącza całe te doby przed
   walidacją/agregacją (`--include-dst-days` przywraca odczyt). Raportuj wykluczenia,
@@ -75,6 +78,7 @@ python -m unittest tests.test_dst_day_exclusion -v
 python -m unittest tests.test_backtest -v
 python -m unittest tests.test_model_selection -v
 python -m unittest tests.test_energy_filter -v
+python -m unittest tests.test_weather_utc -v
 ```
 
 Uruchamiaj sprawdzenia odpowiednie do zmiany. Same opisy i skille wymagają

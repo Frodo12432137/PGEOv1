@@ -120,6 +120,13 @@ class TestBacktest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             configuration = self.configuration(root)
+            # Jeden rozbieżny klucz i pozostałe rekordy bez metadanych:
+            # UTC ma przejść przez rzeczywisty trening, raport i wznowienie.
+            source = pd.read_csv(configuration["weather_file"], sep=";")
+            source["dataCET"] = None
+            source["godzinaHandlowa25"] = None
+            source.loc[0, ["dataCET", "godzinaHandlowa25"]] = ["2025-01-01", 25]
+            source.to_csv(configuration["weather_file"], sep=";", index=False, encoding="utf-8-sig")
             actual_train = train_branch_models
 
             def check_training(energy, weather, settings, **kwargs):
@@ -141,6 +148,10 @@ class TestBacktest(unittest.TestCase):
             workbook = load_workbook(directory / "raport_backtestu.xlsx")
             self.assertIn("Zakres_backtestu", workbook.sheetnames)
             self.assertIn("Pokrycie_backtestu", workbook.sheetnames)
+            self.assertIn("Kontrola_czasu_pogody", workbook.sheetnames)
+            self.assertIn("Rozbieznosci_czasu_pogody", workbook.sheetnames)
+            self.assertTrue((directory / "kontrola_czasu_pogody.csv").is_file())
+            self.assertEqual(workbook["Rozbieznosci_czasu_pogody"].max_row, 2)
             curves = workbook["Przebieg_1_BIA"]
             self.assertEqual(len(curves._charts), 3)
             self.assertIn("zamrożony", workbook["Czytaj_najpierw"]["B3"].value)
@@ -155,6 +166,9 @@ class TestBacktest(unittest.TestCase):
             with patch("mdd_forecasting.backtest.train_branch_models", side_effect=AssertionError("Ponowny fit")), redirect_stdout(StringIO()):
                 self.assertEqual(run_backtest(second), 0)
             pd.testing.assert_frame_equal(balance, pd.read_csv(root / "run2" / "backtest_bilans.csv", sep=";", decimal=","))
+            pd.testing.assert_frame_equal(
+                pd.read_csv(directory / "kontrola_czasu_pogody.csv", sep=";"),
+                pd.read_csv(root / "run2" / "kontrola_czasu_pogody.csv", sep=";"))
             old_signature = run_signature(configuration)
             with Path(configuration["energy"]).open("a", encoding="utf-8") as stream:
                 stream.write("\n")

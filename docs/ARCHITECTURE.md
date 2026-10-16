@@ -40,6 +40,7 @@ flowchart TD
 | [`branch_model.py`](../mdd_forecasting/branch_model.py) | cechy, dwa regresory, dobór wariantów, test, serializacja i prognoza |
 | [`branch_diagnostics.py`](../mdd_forecasting/branch_diagnostics.py) | diagnostyka odłożonego testu, porównanie z profilem, raport Excel i wykresy |
 | [`weather_quality.py`](../mdd_forecasting/weather_quality.py) | kompletność, zakresy i wiek pogody; rekomendacje wariantów wyłącznie z walidacji |
+| [`weather_time.py`](../mdd_forecasting/weather_time.py) | pierwszeństwo źródłowego UTC, jednoznaczna konwersja CET i raport rozbieżności metadanych |
 | [`energy_filter.py`](../mdd_forecasting/energy_filter.py) | progi wysokich pomiarów MDD przed walidacją, wykluczenia i raporty, zapis reguły do audytu |
 | [`portfolio.py`](../mdd_forecasting/portfolio.py) | obecność MDD, przerwy, zmiany zestawów i statusy portfela |
 | [`oddzial_miasto.csv`](../mdd_forecasting/config/oddzial_miasto.csv) | przypisanie oddziałów do punktów pogody |
@@ -70,9 +71,19 @@ obsługują starszy przepływ MDD. Opisuje go [README pakietu](../mdd_forecastin
   Core otrzymuje zamrożony `split_cutoff`, aby wykluczenie końca historii nie
   przesuwało walidacji do referencji filtra. `energy_filter` jest zapisany
   w modelu. Backtest i audyt stosują te progi bez ponownego dopasowania.
-- `prepare_weather_vintages()` zachowuje wydania i normalizuje czasy.
+- `prepare_weather_vintages()` zachowuje wydania i normalizuje czasy do UTC.
+  Poprawne `dataGodzinaUTC` i `czasDanychZrodlaUTC` mają pierwszeństwo przed
+  CET i kluczem handlowym. Brak UTC dopuszcza tylko jednoznaczną konwersję
+  lokalnego czasu; błędne jawne UTC zatrzymuje odczyt z raportem oryginałów.
+  Brak punktu i cel poza pełną godziną również są błędami, nie cichym filtrem.
+  Identyczne wersje zostają do audytu i są deduplikowane przy łączeniu;
+  sprzeczne cechy tego samego punktu/celu/wydania nadal przerywają odczyt.
   `join_weather_asof()` wybiera najnowsze wydanie dla punktu i celu z czasem
   dostępności nie większym niż origin. Nie wybiera pogody osobno względem czasu celu.
+- Nowy SQL ma znacznik `-- PGEO_VALID_RANGE: UTC` i filtruje cel po UTC.
+  Bez znacznika adapter zachowuje dotychczasowy kontrakt parametrów CET,
+  konwertując przekazane przez aplikację granice UTC. Nie zmieniaj kontraktu
+  własnej kwerendy przez samo dodanie znacznika do filtra nadal używającego CET.
 - `historical_requests()` buduje symulowane uruchomienia, domyślnie co 12 h.
   `future_requests()` zaczyna od następnej pełnej godziny i odlicza godziny w UTC.
 - `train_branch_models()` dobiera modele i zwraca raporty. `save_bundle()`
@@ -118,6 +129,7 @@ Kod 0 nie jest potwierdzeniem aktualnych umów ani dokładności prognozy.
 | Test | Zakres |
 |---|---|
 | [`test_branch_forecasting.py`](../tests/test_branch_forecasting.py) | korekty, sumy, pogoda as-of, DST, uczenie/zapis/odczyt i predykcja bez fit |
+| [`test_weather_utc.py`](../tests/test_weather_utc.py) | pierwszeństwo UTC, metadane CET/H25, jednoznaczna konwersja, błędy czasu i kontrakty parametrów SQL |
 | [`test_portfolio.py`](../tests/test_portfolio.py) | przerwy, powroty, zera, podmiana MDD przy tej samej liczbie i statusy |
 | [`test_mdd_forecasting.py`](../tests/test_mdd_forecasting.py) | współdzielone elementy i starszy przepływ |
 | [`test_branch_training_tools.py`](../tests/test_branch_training_tools.py) | konfiguracja ścieżek, luki, kierunek wyłącznie z B mimo opisów E, pokrycie testu, statystyki/Excel, częściowa pogoda i opcjonalny CatBoost |
