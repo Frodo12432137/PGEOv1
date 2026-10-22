@@ -569,6 +569,7 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
     quality = pd.DataFrame([
         ["zlecenia_historyczne", len(joined), f"origin co {settings.origin_step_hours} h, horyzont {settings.horizon_hours} h"],
         ["zlecenia_bez_pogody_asof", int((~joined["pogoda_dopasowana"]).sum()), "nie użyto pogody opublikowanej po origin"],
+        ["zlecenia_pominiete_konflikt_pogody", int(joined["pogoda_konflikt"].sum()), "część zleceń bez pogody; wyłączone z treningu, walidacji i testu"],
         ["poczatek_wspolnej_historii", 0, str(data["target_time_utc"].min())],
         ["poczatek_walidacji", 0, str(validation_start)],
         ["poczatek_testu", 0, str(test_start)],
@@ -671,6 +672,8 @@ def predict_branches(bundle: dict, weather: pd.DataFrame, origin: object, horizo
         if substantive:
             mask = mask & features[substantive].notna().any(axis=1)
         part["status"] = np.where(mask, "PROGNOZA", "BRAK_POGODY_PRZED_URUCHOMIENIEM")
+        if required_weather:
+            part.loc[part["pogoda_konflikt"], "status"] = "KONFLIKT_POGODY_POMINIETY"
         partial = mask & features[substantive].isna().any(axis=1) if substantive else pd.Series(False, index=part.index)
         part.loc[partial, "status"] = "PROGNOZA_NIEPELNA_POGODA"
         part["brakujace_cechy_pogody"] = features[substantive].isna().apply(

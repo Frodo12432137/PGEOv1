@@ -317,3 +317,12 @@ treningiem, także przy wznowieniu backtestu. Domyślny SQL zwraca teraz równie
 właściciela i typ. Nie rozstrzygamy remisu przez execId ani starsze wydanie.
 Sprawdzono syntetyczne przypadki, bez dostępu do danych/SQL użytkownika;
 nie potwierdzono, czy rzeczywisty konflikt dotyczy używanego wydania.
+
+Kolejna decyzja użytkownika 22 października 2026: wybrano IMGW / PGESA,
+a pozostałe konflikty wybranego wydania (w zgłoszeniu 346 zleceń) należy
+pomijać. Całe dopasowanie otrzymuje brak cech pogody i pogoda_dopasowana=False,
+bez powrotu do starszego wydania. Trening wyklucza te zlecenia; prognoza
+wymagająca pogody pozostawia brak ze statusem KONFLIKT_POGODY_POMINIETY.
+Model wyłącznie kalendarzowy nadal może prognozować. Raport źródłowych
+konfliktów pozostaje, log i kontrola treningu podają liczbę pominięć.
+Zgłoszone 346 nie jest stałym limitem; liczba zależy od danych i zleceń.
