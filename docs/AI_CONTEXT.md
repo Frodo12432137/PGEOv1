@@ -307,3 +307,13 @@ energii. Daty wejściowe, lokalny kalendarz i podziały raportu nadal mają jawn
 semantykę Europe/Warsaw. Nie zmieniono cech modelu, parametrów ani formatu modelu.
 Testy: `tests.test_weather_utc` oraz istniejące testy obu przepływów, treningu,
 backtestu i wznowienia. Dane syntetyczne nie dowodzą dokładności modelu PGE.
+
+
+Zmiana 22 października 2026: konflikty pogody są oznaczane przy imporcie,
+ale blokują dopiero użycie sprzecznego wydania wybranego przez as-of.
+Nieużywane wydania nie zatrzymują całego archiwum. Raport
+`konflikty_wersji_pogody.csv` zapisuje wszystkie konfliktujące rekordy przed
+treningiem, także przy wznowieniu backtestu. Domyślny SQL zwraca teraz również
+właściciela i typ. Nie rozstrzygamy remisu przez execId ani starsze wydanie.
+Sprawdzono syntetyczne przypadki, bez dostępu do danych/SQL użytkownika;
+nie potwierdzono, czy rzeczywisty konflikt dotyczy używanego wydania.
