@@ -136,10 +136,13 @@ class TestWeatherUTC(unittest.TestCase):
         requests = pd.DataFrame({"punkt": ["Łódź"], "target_time_utc": pd.to_datetime(["2025-01-01T00:00Z"]),
                                   "forecast_origin_utc": pd.to_datetime(["2024-12-31T18:00Z"])})
         self.assertEqual(join_weather_asof(requests, weather).temperatura.tolist(), [5])
-        with warnings.catch_warnings(), self.assertRaisesRegex(ValueError, "Sprzeczne wersje"):
+        with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             conflicting = self.prepare({**raw, "temperatura": [5, 9]})
-            join_weather_asof(requests, conflicting)
+            result = join_weather_asof(requests, conflicting)
+        self.assertFalse(result.pogoda_dopasowana.any())
+        self.assertTrue(result.temperatura.isna().all())
+        self.assertTrue(result.pogoda_konflikt.all())
 
     def test_unused_conflicts_do_not_block_latest_issue_and_two_lodz_branches(self):
         raw = {"punkt": ["Łódź"] * 5,
@@ -158,8 +161,12 @@ class TestWeatherUTC(unittest.TestCase):
         # Exactly at publication time the conflicting new version is selected:
         # no fallback to the older, convenient value.
         requests["forecast_origin_utc"] = pd.Timestamp("2025-07-01T12:00Z")
-        with self.assertRaisesRegex(ValueError, "najnowszym dostępnym"):
-            join_weather_asof(requests, weather)
+        result = join_weather_asof(requests, weather)
+        self.assertEqual(len(result), 2)
+        self.assertFalse(result.pogoda_dopasowana.any())
+        self.assertTrue(result.temperatura.isna().all())
+        self.assertTrue(result.pogoda_konflikt.all())
+        self.assertTrue(result.weather_issue_time_utc.eq(pd.Timestamp("2025-07-01T12:00Z")).all())
         from mdd_forecasting.branch_cli import write_weather_time_reports
         with TemporaryDirectory() as directory:
             write_weather_time_reports(weather, directory)

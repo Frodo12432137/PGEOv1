@@ -372,16 +372,13 @@ def join_weather_asof(requests: pd.DataFrame, weather: pd.DataFrame) -> pd.DataF
     ).sort_values("_request_order").drop(columns="_request_order").reset_index(drop=True)
     conflicts = joined["konflikt_pola"].fillna("").ne("")
     if conflicts.any():
-        example = joined.loc[conflicts, ["punkt", "target_time_utc", "forecast_origin_utc",
-                                        "weather_issue_time_utc", "konflikt_pola"]].head(5)
-        raise ValueError(
-            "Sprzeczne wersje pogody w najnowszym dostępnym wydaniu dla "
-            f"{int(conflicts.sum())} zleceń. Nie wybieram losowego rekordu ani starszego wydania. "
-            "Sprawdź konflikty_wersji_pogody.csv (właściciel/typ/execId i różniące się pola), "
-            "ustaw sql_owner/sql_weather_type w POGODA_SQL. Przykłady: "
-            + example.to_json(orient="records", date_format="iso", force_ascii=False))
-    joined = joined.drop(columns="konflikt_pola")
-    joined["pogoda_dopasowana"] = joined["weather_issue_time_utc"].notna()
+        print(f"Pogoda: pomijam {int(conflicts.sum())} z {len(joined)} dopasowań "
+              "z konfliktem wybranego wydania. Szczegóły: konflikty_wersji_pogody.csv.", flush=True)
+        # Pozostaw czas i przyczynę do audytu, ale usuń wszystkie cechy pogody.
+        # Nie usuwaj wydania przed merge_asof: to wybrałoby starszą prognozę.
+        joined.loc[conflicts, WEATHER_FEATURES] = np.nan
+    joined["pogoda_konflikt"] = conflicts
+    joined["pogoda_dopasowana"] = joined["weather_issue_time_utc"].notna() & ~conflicts
     joined["horyzont_h"] = (joined["target_time_utc"] - joined["forecast_origin_utc"]).dt.total_seconds() / 3600
     joined["wiek_prognozy_h"] = (joined["forecast_origin_utc"] - joined["weather_issue_time_utc"]).dt.total_seconds() / 3600
     return joined

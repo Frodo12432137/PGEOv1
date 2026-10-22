@@ -184,9 +184,14 @@ i `weather_exec_id` (źródłowe `execId`). Własny SQL powinien zwracać te kol
 
 Każda prognoza wybiera najnowsze wydanie dostępne do jej origin. Konflikt
 w nieużywanym wydaniu nie blokuje obliczeń; sprzeczne wartości w wybranym
-wydaniu nadal zatrzymują przebieg z przykładami punkt/cel/origin/wydanie.
+wydaniu powodują pominięcie dopasowania pogody, zgodnie z decyzją użytkownika.
+W treningu, walidacji i wewnętrznym teście takie zlecenia są wyłączone.
+Podczas prognozy model wymagający pogody pozostawia brak wyniku ze statusem
+`KONFLIKT_POGODY_POMINIETY` w szczegółach; model kalendarzowy może prognozować.
+Wiersze prognozy i realizacje nie są usuwane ani zerowane. Liczbę pominiętych
+dopasowań podaje log i kontrola treningu (`zlecenia_pominiete_konflikt_pogody`).
 Nie wybieramy losowego rekordu, średniej ani starszego wydania w zastępstwie.
-W takim przypadku należy potwierdzić źródło i ustawić `sql_owner` oraz
+Nadal należy ograniczyć źródło przez `sql_owner` oraz
 `sql_weather_type` w `POGODA_SQL` w `uruchom_trening_bilansow.py`.
 Backtest dziedziczy te ustawienia. Różnica brak/liczba również jest konfliktem.
 Oba łódzkie oddziały korzystają z jednego punktu Łódź i pozostają oddzielne.
