@@ -15,7 +15,7 @@ DECLARE @doUTC datetime2 = ?;
 DECLARE @asofUTC datetime2 = ?;
 DECLARE @owner nvarchar(100) = ?;
 DECLARE @typ nvarchar(100) = ?;
-SELECT [execId], [punkt], [dataCET], [godzinaHandlowa25],
+SELECT [execId], [wlasciciel], [typ], [punkt], [dataCET], [godzinaHandlowa25],
        [dataGodzinaCET], [dataGodzinaUTC],
        [czasDanychZrodlaCET], [czasDanychZrodlaUTC],
        [temperatura], [predkoscWiatru], [kierunekWiatru], [zachmurzenie],

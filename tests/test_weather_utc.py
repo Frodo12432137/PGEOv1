@@ -138,7 +138,35 @@ class TestWeatherUTC(unittest.TestCase):
         self.assertEqual(join_weather_asof(requests, weather).temperatura.tolist(), [5])
         with warnings.catch_warnings(), self.assertRaisesRegex(ValueError, "Sprzeczne wersje"):
             warnings.simplefilter("ignore", UserWarning)
-            self.prepare({**raw, "temperatura": [5, 9]})
+            conflicting = self.prepare({**raw, "temperatura": [5, 9]})
+            join_weather_asof(requests, conflicting)
+
+    def test_unused_conflicts_do_not_block_latest_issue_and_two_lodz_branches(self):
+        raw = {"punkt": ["Łódź"] * 5,
+               "dataGodzinaUTC": ["2025-07-02T12:00Z"] * 5,
+               "czasDanychZrodlaUTC": ["2025-07-01T00:00Z"] * 2
+                   + ["2025-07-01T06:00Z"] + ["2025-07-01T12:00Z"] * 2,
+               "temperatura": [1, 2, 20, 90, 99],
+               "wlasciciel": ["A", "B", "A", "A", "B"], "execId": [1, 2, 3, 4, 5]}
+        weather = self.prepare(raw)
+        requests = pd.DataFrame({"punkt": ["Łódź"] * 2, "oddzial_code": ["ZEUE", "ZEUD"],
+            "target_time_utc": pd.to_datetime(["2025-07-02T12:00Z"] * 2),
+            "forecast_origin_utc": pd.to_datetime(["2025-07-01T10:00Z"] * 2)})
+        result = join_weather_asof(requests, weather)
+        self.assertEqual(result.temperatura.tolist(), [20, 20])
+        self.assertEqual(result.oddzial_code.tolist(), ["ZEUE", "ZEUD"])
+        # Exactly at publication time the conflicting new version is selected:
+        # no fallback to the older, convenient value.
+        requests["forecast_origin_utc"] = pd.Timestamp("2025-07-01T12:00Z")
+        with self.assertRaisesRegex(ValueError, "najnowszym dostępnym"):
+            join_weather_asof(requests, weather)
+        from mdd_forecasting.branch_cli import write_weather_time_reports
+        with TemporaryDirectory() as directory:
+            write_weather_time_reports(weather, directory)
+            report = pd.read_csv(Path(directory) / "konflikty_wersji_pogody.csv", sep=";")
+            self.assertEqual(report.weather_exec_id.tolist(), [1, 2, 4, 5])
+            self.assertEqual(set(report.wlasciciel), {"A", "B"})
+            self.assertTrue(report.konflikt_pola.eq("temperatura").all())
 
     def test_late_issues_are_kept_for_audit_and_cannot_leak_to_forecast(self):
         with self.assertWarns(UserWarning):

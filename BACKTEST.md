@@ -174,3 +174,19 @@ Kod 0 oznacza ukończony zakres bez wykrytych braków. Kod 2 oznacza ukończony
 zakres z brakami realizacji/prognozy lub częściową pogodą; pokaż to z wynikami.
 Kod 1 oznacza błąd — opis jest w `blad_backtestu.txt`. Kod 124 oznacza limit.
 Wyniki, rzeczywiste dane, modele i cache są lokalne i nie trafiają do Git.
+
+## Konflikty wydań pogody
+
+Import zachowuje archiwum i zapisuje `konflikty_wersji_pogody.csv`, również
+przed wyborem pogody do treningu. Zawiera oryginalne rekordy po normalizacji,
+czasy UTC, różniące się pola, a przy domyślnym SQL także `wlasciciel`, `typ`
+i `weather_exec_id` (źródłowe `execId`). Własny SQL powinien zwracać te kolumny, aby ułatwić diagnozę.
+
+Każda prognoza wybiera najnowsze wydanie dostępne do jej origin. Konflikt
+w nieużywanym wydaniu nie blokuje obliczeń; sprzeczne wartości w wybranym
+wydaniu nadal zatrzymują przebieg z przykładami punkt/cel/origin/wydanie.
+Nie wybieramy losowego rekordu, średniej ani starszego wydania w zastępstwie.
+W takim przypadku należy potwierdzić źródło i ustawić `sql_owner` oraz
+`sql_weather_type` w `POGODA_SQL` w `uruchom_trening_bilansow.py`.
+Backtest dziedziczy te ustawienia. Różnica brak/liczba również jest konfliktem.
+Oba łódzkie oddziały korzystają z jednego punktu Łódź i pozostają oddzielne.

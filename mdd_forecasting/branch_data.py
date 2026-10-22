@@ -321,15 +321,25 @@ def sum_branch_measurements(measurements: pd.DataFrame, timezone: str) -> pd.Dat
     return hourly.sort_values(["target_time_utc", "oddzial_code", "kierunek_energii_norm"])
 
 
+def _mark_weather_conflicts(weather: pd.DataFrame) -> pd.DataFrame:
+    key = ["_punkt_key", "weather_valid_time_utc", "weather_issue_time_utc"]
+    differences = weather.groupby(key)[WEATHER_FEATURES].nunique(dropna=False).gt(1)
+    fields = pd.Series({idx: ", ".join(row.index[row])
+                            for idx, row in differences.loc[differences.any(axis=1)].iterrows()},
+                           index=differences.index, dtype="object").fillna("")
+    weather = weather.merge(fields.rename("konflikt_pola").reset_index(), on=key,
+                            how="left", validate="many_to_one")
+    return weather
+
+
 def prepare_weather_vintages(raw: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
     from .weather_time import normalize_weather_time
     weather = normalize_weather(raw, replace(config, weather_already_vintaged=True,
                                             preserve_weather_vintages=True), utc_primary=True)
     weather = normalize_weather_time(weather, config.timezone)
-    key = ["_punkt_key", "weather_valid_time_utc", "weather_issue_time_utc"]
-    conflicts = weather.groupby(key)[WEATHER_FEATURES].nunique(dropna=False).gt(1).any(axis=1)
-    if conflicts.any():
-        raise ValueError("Sprzeczne wersje pogody dla tego samego punktu, godziny i czasu źródła. Ustaw filtr właściciela/typu w SQL.")
+    # Oznacz konflikty, ale rozstrzygaj je dopiero po wyborze wydania as-of.
+    # Nieużywane wydania (starsze lub przyszłe) nie blokują całego archiwum.
+    weather = _mark_weather_conflicts(weather)
     # Zachowaj oryginalne rekordy także do audytu metadanych. Identyczne
     # klucze i cechy są deduplikowane dopiero na wejściu łączenia as-of.
     return weather
@@ -340,7 +350,11 @@ def join_weather_asof(requests: pd.DataFrame, weather: pd.DataFrame) -> pd.DataF
     left = requests.copy()
     left["_punkt_key"] = left["punkt"].map(_ascii_token)
     left["_request_order"] = np.arange(len(left))
-    columns = ["_punkt_key", "weather_valid_time_utc", "weather_issue_time_utc", *WEATHER_FEATURES]
+    if "konflikt_pola" not in weather:
+        # Także ramki utworzone poza importerem muszą przejść kontrolę remisu.
+        weather = _mark_weather_conflicts(weather)
+    columns = ["_punkt_key", "weather_valid_time_utc", "weather_issue_time_utc",
+               "konflikt_pola", *WEATHER_FEATURES]
     right = weather[columns].drop_duplicates(
         ["_punkt_key", "weather_valid_time_utc", "weather_issue_time_utc"]
     ).rename(columns={"weather_valid_time_utc": "target_time_utc"})
@@ -356,6 +370,17 @@ def join_weather_asof(requests: pd.DataFrame, weather: pd.DataFrame) -> pd.DataF
         left_on="forecast_origin_utc", right_on="weather_issue_time_utc",
         by=["_punkt_key", "target_time_utc"], direction="backward", allow_exact_matches=True,
     ).sort_values("_request_order").drop(columns="_request_order").reset_index(drop=True)
+    conflicts = joined["konflikt_pola"].fillna("").ne("")
+    if conflicts.any():
+        example = joined.loc[conflicts, ["punkt", "target_time_utc", "forecast_origin_utc",
+                                        "weather_issue_time_utc", "konflikt_pola"]].head(5)
+        raise ValueError(
+            "Sprzeczne wersje pogody w najnowszym dostępnym wydaniu dla "
+            f"{int(conflicts.sum())} zleceń. Nie wybieram losowego rekordu ani starszego wydania. "
+            "Sprawdź konflikty_wersji_pogody.csv (właściciel/typ/execId i różniące się pola), "
+            "ustaw sql_owner/sql_weather_type w POGODA_SQL. Przykłady: "
+            + example.to_json(orient="records", date_format="iso", force_ascii=False))
+    joined = joined.drop(columns="konflikt_pola")
     joined["pogoda_dopasowana"] = joined["weather_issue_time_utc"].notna()
     joined["horyzont_h"] = (joined["target_time_utc"] - joined["forecast_origin_utc"]).dt.total_seconds() / 3600
     joined["wiek_prognozy_h"] = (joined["forecast_origin_utc"] - joined["weather_issue_time_utc"]).dt.total_seconds() / 3600

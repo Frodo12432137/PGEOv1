@@ -34,6 +34,9 @@ def _weather_arguments(parser):
 
 def write_weather_time_reports(weather, directory):
     reports = weather_time_reports(weather)
+    if "konflikt_pola" in weather:
+        reports["konflikty_wersji_pogody"] = weather.loc[weather.konflikt_pola.fillna("").ne("")].copy()
+
     for name, frame in reports.items():
         write_csv(frame, Path(directory) / f"{name}.csv")
     print("Czas pogody: UTC dla celu, wydania i łączenia z energią. "
