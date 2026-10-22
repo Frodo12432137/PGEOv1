@@ -195,3 +195,17 @@ Nadal należy ograniczyć źródło przez `sql_owner` oraz
 `sql_weather_type` w `POGODA_SQL` w `uruchom_trening_bilansow.py`.
 Backtest dziedziczy te ustawienia. Różnica brak/liczba również jest konfliktem.
 Oba łódzkie oddziały korzystają z jednego punktu Łódź i pozostają oddzielne.
+
+## Limit danych treningowych i brak pokrycia oddziału
+
+`max_train_rows` pozostaje łącznym limitem dla jednego kierunku. Limit dzieli
+się między obecne oddziały, wybierając najnowsze wiersze każdego z nich.
+Niewykorzystane miejsca oddziału z krótką historią uzupełniają najnowsze
+pozostałe wiersze. Ta sama reguła obowiązuje przy treningu i obu refitach.
+Może zmienić skład próby i wynik doboru modelu; wymaga ponownego treningu.
+
+Przy błędzie pokrycia terminal i `backtest.log` pokazują liczbę poprawnych
+unikalnych godzin każdego oddziału: energia po filtrach, po dopasowaniu
+pogody, trening przed limitem i trening po limicie. Brak pomiaru nie liczy
+się jako godzina, a brakujące oddziały są jawnie pokazane jako zero.
+Prawdziwy brak danych przed limitem nadal zatrzymuje trening.

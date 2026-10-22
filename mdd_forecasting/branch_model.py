@@ -339,7 +339,21 @@ def balance_table(frame: pd.DataFrame, value_columns: list[str]) -> pd.DataFrame
 
 
 def _cap(frame: pd.DataFrame, maximum: int) -> pd.DataFrame:
-    return frame.sort_values(["target_time_utc", "forecast_origin_utc"]).tail(maximum)
+    ordered = frame.sort_values(["target_time_utc", "forecast_origin_utc"], kind="stable")
+    if len(ordered) <= maximum:
+        return ordered
+    groups = ordered.groupby("oddzial_code", sort=True).indices
+    if maximum < len(groups):
+        raise ValueError("max_train_rows musi być co najmniej równy liczbie oddziałów.")
+    quota, remainder = divmod(maximum, len(groups))
+    selected = np.zeros(len(ordered), dtype=bool)
+    for number, positions in enumerate(groups.values()):
+        selected[positions[-(quota + int(number < remainder)):]] = True
+    # Krótsza historia jednego oddziału zwalnia miejsca dla pozostałych.
+    missing = maximum - int(selected.sum())
+    if missing:
+        selected[np.flatnonzero(~selected)[-missing:]] = True
+    return ordered.iloc[np.flatnonzero(selected)]
 
 
 def _select_ensemble(settings, specs, features, fit_rows, validation, scales, choice, prediction, notify):
@@ -426,6 +440,18 @@ def train_branch_models(energy: pd.DataFrame, weather: pd.DataFrame, settings: T
                                       "unikalne_godziny": int(count), "minimum": minimum})
             insufficient = counts.loc[counts.lt(minimum)]
             if not insufficient.empty:
+                print(f"Diagnostyka pokrycia: {stage}, {direction}, "
+                      f"max_train_rows={settings.max_train_rows}", flush=True)
+                for name, frame in [
+                    ("ENERGIA PO FILTRACH", energy),
+                    ("PO DOPASOWANIU POGODY", data),
+                    ("TRENING PRZED LIMITEM", train),
+                    ("TRENING PO LIMICIE", fit_rows),
+                ]:
+                    valid = frame["kierunek_energii_norm"].eq(direction) & frame["wartosc_rzeczywista"].notna()
+                    hours = (frame.loc[valid].groupby("oddzial_code")["target_time_utc"]
+                             .nunique().reindex(branches, fill_value=0).to_dict())
+                    print(name, direction, hours, flush=True)
                 raise ValueError(f"Brak wystarczającego pokrycia: {stage}, {direction}, oddziały {insufficient.to_dict()}. Minimum: {minimum} unikalnych godzin; nie zakładamy zera.")
         scales = fit_rows.groupby("oddzial_code")["wartosc_rzeczywista"].mean()
         best_score = float("inf")
